@@ -14,6 +14,7 @@ Item {
   property bool opened: false
   property string filterText: ""
   property int selectedIndex: 0
+  property bool cursorActive: false
   property var ports: []
   // Set by ctrl+k; a second ctrl+k on the same still-alive PID escalates to SIGKILL.
   property string lastKilledPid: ""
@@ -48,9 +49,21 @@ Item {
     root.opened = true
     root.filterText = ""
     root.selectedIndex = 0
+    root.cursorActive = true
     root.lastKilledPid = ""
+    root.disarmPointer()
     root.refresh()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function disarmPointer() {
+    pointerGate.reset()
+  }
+
+  function selectFromPointer(index, item, mouse) {
+    if (!pointerGate.moved(item, mouse)) return
+    root.cursorActive = true
+    root.selectedIndex = index
   }
 
   function close() {
@@ -77,6 +90,7 @@ Item {
     var parsed = []
     try { parsed = JSON.parse(raw || "[]") } catch (e) { parsed = [] }
     root.ports = parsed
+    root.disarmPointer()
     if (root.lastKilledPid) {
       var alive = false
       for (var i = 0; i < parsed.length; i++)
@@ -110,13 +124,20 @@ Item {
 
   function select(delta) {
     if (displayModel.count === 0) return
-    root.selectedIndex = (root.selectedIndex + delta + displayModel.count) % displayModel.count
+    root.disarmPointer()
+    if (!root.cursorActive) {
+      root.cursorActive = true
+      root.selectedIndex = delta < 0 ? displayModel.count - 1 : 0
+    } else {
+      root.selectedIndex = (root.selectedIndex + delta + displayModel.count) % displayModel.count
+    }
     resultList.positionViewAtIndex(root.selectedIndex, ListView.Contain)
   }
 
   function setFilter(nextFilter) {
     root.filterText = nextFilter
     root.selectedIndex = 0
+    root.disarmPointer()
     root.rebuildDisplay()
   }
 
@@ -149,6 +170,11 @@ Item {
   }
 
   ListModel { id: displayModel }
+
+  PointerMoveGate {
+    id: pointerGate
+    referenceItem: card
+  }
 
   Process {
     id: listProc
@@ -232,8 +258,8 @@ Item {
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
             root.openSelected()
             event.accepted = true
-          } else if (event.key === Qt.Key_Backspace) {
-            root.setFilter(root.filterText.slice(0, -1))
+          } else if (Util.editsFilter(event, root.filterText)) {
+            root.setFilter(Util.editedFilter(event, root.filterText))
             event.accepted = true
           } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127) {
             root.setFilter(root.filterText + event.text)
@@ -293,18 +319,19 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
 
             delegate: Rectangle {
+              id: rowItem
               required property int index
               required property string port
               required property string process
               required property string pid
               required property string cwd
 
-              readonly property bool hasCursor: index === root.selectedIndex
+              readonly property bool hasCursor: root.cursorActive && index === root.selectedIndex
 
               width: resultList.width
               height: root.rowHeight
               radius: root.cornerRadius
-              color: hasCursor ? root.selectedBackground : "transparent"
+              color: rowItem.hasCursor ? root.selectedBackground : "transparent"
 
               Row {
                 anchors.fill: parent
@@ -315,8 +342,8 @@ Item {
                 Text {
                   width: Style.space(64)
                   anchors.verticalCenter: parent.verticalCenter
-                  text: parent.parent.port
-                  color: parent.parent.hasCursor ? root.selectedText : root.foreground
+                  text: rowItem.port
+                  color: rowItem.hasCursor ? root.selectedText : root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
@@ -325,8 +352,8 @@ Item {
                 Text {
                   width: Style.space(110)
                   anchors.verticalCenter: parent.verticalCenter
-                  text: parent.parent.process
-                  color: parent.parent.hasCursor ? root.selectedText : root.foreground
+                  text: rowItem.process
+                  color: rowItem.hasCursor ? root.selectedText : root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   elide: Text.ElideRight
@@ -335,8 +362,8 @@ Item {
                 Text {
                   width: Style.space(56)
                   anchors.verticalCenter: parent.verticalCenter
-                  text: parent.parent.pid
-                  color: parent.parent.hasCursor ? root.selectedText : root.foreground
+                  text: rowItem.pid
+                  color: rowItem.hasCursor ? root.selectedText : root.foreground
                   opacity: 0.7
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -345,8 +372,8 @@ Item {
                 Text {
                   width: parent.width - Style.space(64) - Style.space(110) - Style.space(56) - Style.spacing.md * 3
                   anchors.verticalCenter: parent.verticalCenter
-                  text: parent.parent.cwd
-                  color: parent.parent.hasCursor ? root.selectedText : root.foreground
+                  text: rowItem.cwd
+                  color: rowItem.hasCursor ? root.selectedText : root.foreground
                   opacity: 0.6
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -358,9 +385,12 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onContainsMouseChanged: if (containsMouse) root.selectedIndex = index
+                onPositionChanged: function(mouse) {
+                  root.selectFromPointer(rowItem.index, rowItem, mouse)
+                }
                 onClicked: {
-                  root.selectedIndex = index
+                  root.cursorActive = true
+                  root.selectedIndex = rowItem.index
                   root.openSelected()
                 }
               }
