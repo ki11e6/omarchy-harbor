@@ -130,12 +130,14 @@ omarchy-restart-shell
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `omarchy plugin validate ~/Projects/omarchy-harbor` → exit 0
-- [ ] `bash -n dev.sh` → exit 0
-- [ ] After `./dev.sh`: `omarchy plugin list --json | jq -e '.[] | select(.id == "io.github.ki11e6.harbor")'`
+- [x] `omarchy plugin validate ~/Projects/omarchy-harbor` → exit 0
+- [x] `bash -n dev.sh` → exit 0
+- [x] After `./dev.sh`: `omarchy plugin list --json | jq -e '.[] | select(.id == "io.github.ki11e6.harbor")'`
 
 #### Manual Verification
-- [ ] Shell restarts cleanly after `./dev.sh` (bar comes back, no console errors)
+- [x] Shell restarts cleanly after `./dev.sh` (bar comes back, no console errors)
+      (Note: enable had to move after `omarchy-restart-shell` — on first install the
+      running shell hasn't discovered the plugin dir yet and enable fails.)
 
 ---
 
