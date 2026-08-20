@@ -178,15 +178,16 @@ from `~/omarchy-portboard/list-ports.sh` unchanged (they tested correct).
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `bash -n list-ports.sh`
-- [ ] `bash list-ports.sh | jq -e 'type == "array" and (all(.[]; has("port") and has("process") and has("pid") and has("cwd")))'`
-- [ ] Dedup fixture test (both input orders → named row wins):
+- [x] `bash -n list-ports.sh`
+- [x] `bash list-ports.sh | jq -e 'type == "array" and (all(.[]; has("port") and has("process") and has("pid") and has("cwd")))'`
+- [x] Dedup fixture test (both input orders → named row wins):
       `printf '3000\t?\t?\t-\n3000\tnode\t123\t/x\n' | <awk snippet> | grep -q node` and reversed order likewise
-- [ ] Space fixture test: simulated `ss` line with `"my app"` yields `process == "my app"`, not `?`
+- [x] Space fixture test: simulated `ss` line with `"my app"` yields `process == "my app"`, not `?`
 
 #### Manual Verification
-- [ ] Output matches `ss -tlnp` reality with a dev server running (e.g. `python -m http.server 8000`)
-- [ ] Root-owned ports (53, 631 on this machine) show `?`/`?`/`-`
+- [x] Output matches `ss -tlnp` reality with a dev server running (verified with
+      `python -m http.server 8123`: row appeared with `cwd=/tmp`, disappeared after kill)
+- [x] Root-owned ports (53, 631 on this machine) show `?`/`?`/`-`
 
 ---
 
