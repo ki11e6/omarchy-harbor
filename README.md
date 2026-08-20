@@ -31,19 +31,29 @@ Then bind a key in `~/.config/hypr/bindings.lua`:
 o.bind("SUPER + ALT + P", "Harbor", "omarchy-shell shell toggle io.github.ki11e6.harbor")
 ```
 
-### Bar widget (optional)
+### Bar widget
 
-Harbor also ships a stateless bar button (no polling, no idle cost) that toggles
-the same overlay:
+Enabling Harbor also places a stateless 󰛳 button on the bar (no polling, no idle
+cost) that toggles the same overlay — `omarchy plugin add --enable` asks which
+section, defaulting to `right`. Move it later with:
 
 ```bash
-omarchy plugin enable io.github.ki11e6.harbor --section right
+omarchy bar move io.github.ki11e6.harbor --section <left|center|right>
 ```
 
-Note: for a plugin with both kinds, the bar entry doubles as the enable flag —
-if you had already enabled Harbor keyboard-only, run
-`omarchy plugin disable io.github.ki11e6.harbor` first so the enable entry can
-move onto the bar.
+The bar entry doubles as the plugin's enable flag, so there is no
+keyboard-only install: removing the button from the bar
+(`omarchy plugin disable`) disables the overlay too.
+
+### Instant open/close (recommended)
+
+Omarchy exempts its own overlays from layer animations, but that rule is
+namespace-anchored and can't cover third-party plugins. Add one line to your
+`~/.config/hypr/looknfeel.lua` so Harbor pops instantly instead of fading:
+
+```lua
+hl.layer_rule({ match = { namespace = "harbor" }, no_anim = true, animation = "none" })
+```
 
 ## How it works
 
@@ -52,6 +62,12 @@ Only sockets bound to loopback or wildcard addresses are shown; IPv4/IPv6 duplic
 
 Ports owned by other users (for example root services like CUPS) show `?` for process and PID, since `ss` can't read their process info without root.
 `ctrl+k` does nothing for those.
+
+Everything runs unprivileged as your user: `ctrl+k` can only signal processes you own, and there is no confirmation step — the first press sends SIGTERM (polite), and only a deliberate second press on a survivor sends SIGKILL.
+
+## Configuration
+
+None. Harbor has no options; the filter, keys, and theming (inherited from the active Omarchy theme) are the whole interface.
 
 ## Dependencies
 
