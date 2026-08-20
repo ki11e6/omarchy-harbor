@@ -27,6 +27,9 @@ set -o pipefail
     cwd="-"
     if [[ -n $pid ]]; then
       cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || echo "-")
+      # Tabs/newlines in a path would corrupt the tab-delimited row.
+      cwd="${cwd//[$'\t\n']/ }"
+      name="${name//[$'\t\n']/ }"
     else
       name="?" pid="?"
     fi
