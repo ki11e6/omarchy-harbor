@@ -12,7 +12,7 @@ Answers "which dev server is on 5173?" without leaving the keyboard.
 | Key | Action |
 |-----|--------|
 | type | Filter the list (e.g. `3000`, `node`, or a directory name) |
-| `enter` / click | Open `http://localhost:<port>` in the browser — or copy `localhost:<port>` for known non-HTTP ports (ssh, dns, postgres, mysql, redis, mongo, cups) |
+| `enter` / click | Open `http://localhost:<port>` in the browser — or copy `localhost:<port>` for known non-HTTP ports (ssh, smtp, dns, rpcbind, cups, mysql, postgres, redis, mongo) |
 | `ctrl+y` | Copy `localhost:<port>` to the clipboard |
 | `ctrl+k` | Kill the owning process (SIGTERM); press again on a survivor to escalate to SIGKILL |
 | `ctrl+r` | Refresh the list |
@@ -30,6 +30,20 @@ Then bind a key in `~/.config/hypr/bindings.lua`:
 ```lua
 o.bind("SUPER + ALT + P", "Harbor", "omarchy-shell shell toggle io.github.ki11e6.harbor")
 ```
+
+### Bar widget (optional)
+
+Harbor also ships a stateless bar button (no polling, no idle cost) that toggles
+the same overlay:
+
+```bash
+omarchy plugin enable io.github.ki11e6.harbor --section right
+```
+
+Note: for a plugin with both kinds, the bar entry doubles as the enable flag —
+if you had already enabled Harbor keyboard-only, run
+`omarchy plugin disable io.github.ki11e6.harbor` first so the enable entry can
+move onto the bar.
 
 ## How it works
 

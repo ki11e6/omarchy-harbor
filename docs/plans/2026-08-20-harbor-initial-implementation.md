@@ -313,6 +313,48 @@ Modeled on portboard's (good structure), corrected:
 
 ---
 
+## Phase 5: Optional bar-widget entry point (added 2026-08-20 after design discussion)
+
+### Overview
+A stateless bar button that toggles the overlay — closes the discoverability gap
+without polling or idle cost. Modeled 1:1 on `omarchy.menu`'s bar widget
+(`/usr/share/omarchy/shell/plugins/menu/BarWidget.qml`), the official precedent
+for a bar widget summoning another kind.
+
+### Changes Required
+
+#### 1. `manifest.json` — add `bar-widget` kind, `barWidget` entry point and metadata
+(`displayName`, `category: Development`, `defaultSection: right`, `allowMultiple: false`)
+
+#### 2. `BarWidget.qml` — `BarWidget` + `WidgetButton` with the 󰛳 glyph;
+`onPressed` runs `omarchy-shell shell toggle io.github.ki11e6.harbor '{}'` via
+`root.bar.run()` — the same IPC path as the keybinding.
+
+### Success Criteria
+
+#### Automated Verification
+- [x] `omarchy plugin validate .` → exit 0
+- [x] qmllint on `BarWidget.qml`: identical warning-category profile to
+      `omarchy.menu`'s BarWidget baseline
+- [x] Widget placed in bar: `jq '[.bar.layout.right[].id]' ~/.config/omarchy/shell.json`
+      contains `io.github.ki11e6.harbor`
+- [x] Overlay still summons/hides via `omarchy-shell shell toggle/hide` after the change
+
+#### Manual Verification
+- [x] 󰛳 icon renders in the bar's right section (screenshot verified)
+- [ ] Physical click on the icon toggles the overlay (no pointer-injection tool on
+      this machine — user to verify; the command it runs was verified via IPC)
+
+### Deviation discovered during implementation
+`PluginRegistry.setEnabled` (`services/PluginRegistry.qml:495-517`) only inserts a
+bar-layout entry when the plugin has **no existing enable entry**. Harbor was
+enabled overlay-only first, so its entry lived in `config.plugins` and
+`omarchy bar put` silently no-opped. Fix: `omarchy plugin disable` then
+`omarchy plugin enable --section right` migrates the entry into `bar.layout`
+(where it doubles as the enable flag for both kinds, like `omarchy.menu`).
+Documented in the README's bar-widget section. This also exercised the
+disable/enable cycle the Phase 4 review flagged as untested.
+
 ## Testing Strategy
 
 No test framework exists for Omarchy plugins; verification is the per-phase
