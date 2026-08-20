@@ -254,20 +254,26 @@ function killSelected() {
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `omarchy plugin validate ~/Projects/omarchy-harbor` → exit 0
-- [ ] `/usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell Harbor.qml` — only the
-      known `qs.*` import-resolution warnings (built-ins emit the same); no new
-      warning categories (unqualified locals, syntax)
+- [x] `omarchy plugin validate ~/Projects/omarchy-harbor` → exit 0
+- [x] `/usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell Harbor.qml` — same warning
+      categories as the Portboard baseline, no new ones
+- [x] `omarchy plugin validate ~/Projects/omarchy-harbor` → exit 0
 
-#### Manual Verification (per the dev-guide testing lifecycle)
-- [ ] `./dev.sh` then `omarchy-shell shell toggle io.github.ki11e6.harbor` opens/closes it
-- [ ] Start `python -m http.server 8123` → row appears; Enter opens the browser
-- [ ] Postgres-class port (add 8123 temporarily to `nonHttpPorts` to test) → Enter copies, `wl-paste` shows `localhost:8123`
-- [ ] ctrl+y copies; ctrl+k kills the http.server; second ctrl+k on a TERM-trapping process escalates
-- [ ] Root-owned row: ctrl+k is a no-op
-- [ ] Typing filters; esc clears filter, esc again closes; click-outside closes
-- [ ] Empty state (filter garbage) shows icon + message
-- [ ] Theme switch (`omarchy theme set <other>`) re-themes the overlay
+#### Manual Verification (per the dev-guide testing lifecycle — automated live with wtype/grim)
+- [x] `./dev.sh` then summon/hide via `omarchy-shell` opens/closes it (screenshots verified)
+- [x] Dev server row appears (`python -m http.server 8123` → `8321`, `cwd=/tmp` shown)
+- [x] Enter opens browser for non-allowlisted port (xdg-open fired on port 42053)
+- [x] Smart Enter on allowlisted port copies: filter `631` + Enter → clipboard `localhost:631`
+- [x] ctrl+y copies (`localhost:8321`); ctrl+k killed the http.server; second ctrl+k on a
+      SIGTERM-ignoring server escalated to SIGKILL and killed it
+- [x] Root-owned row (`53`): ctrl+k is a no-op — port still listening after
+- [x] Typing filters; esc clears filter, esc again closes (exercised repeatedly)
+- [ ] Click-outside closes (not automatable without a pointer injector — user to verify)
+- [x] Empty state (filter garbage) shows icon + message — required a fix: the
+      centered Column needed an explicit `width`; the unsized-Column pattern in the
+      built-in overlays (clipboard verified) silently renders nothing → upstream Omarchy
+      bug, reported separately
+- [ ] Theme switch re-themes the overlay (skipped to avoid disrupting the session — user to verify)
 
 ---
 
