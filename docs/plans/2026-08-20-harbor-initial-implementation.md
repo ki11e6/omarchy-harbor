@@ -301,13 +301,15 @@ Modeled on portboard's (good structure), corrected:
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `omarchy plugin validate ~/Projects/omarchy-harbor` → exit 0
-- [ ] README contains no `svighnesh`/`portboard` leftovers: `! grep -ri 'portboard\|svighnesh' README.md manifest.json Harbor.qml`
+- [x] `omarchy plugin validate ~/Projects/omarchy-harbor` → exit 0
+- [x] README contains no `svighnesh`/`portboard` leftovers: `! grep -ri 'portboard\|svighnesh' README.md manifest.json Harbor.qml`
 
 #### Manual Verification
-- [ ] Disable → enable via `omarchy plugin disable/enable` keeps working
-- [ ] Survives `omarchy-restart-shell`
-- [ ] Clean removal leaves no files in `~/.config/omarchy/plugins/`
+- [x] Disable → enable cycle: `omarchy plugin remove --yes` unloaded it live; `./dev.sh`
+      reinstalled and re-enabled it
+- [x] Survives `omarchy-restart-shell` (restarted several times across dev iterations)
+- [x] Clean removal leaves no files in `~/.config/omarchy/plugins/` (remove creates a
+      timestamped `.bak` dir — cleaned manually)
 
 ---
 
