@@ -143,6 +143,14 @@ bash test/fixtures.sh # regression fixtures: probe, dedup, kill helper, answer l
 omarchy plugin remove io.github.ki11e6.harbor
 ```
 
+## Credits
+
+Harbor began as a ground-up rewrite inspired by
+[SVIGHNESH/omarchy-portboard](https://github.com/SVIGHNESH/omarchy-portboard) —
+the first Omarchy plugin to put listening ports in a summonable overlay. The
+architecture (a QML overlay over a small `ss` wrapper script) follows its lead;
+the code was rewritten from scratch. Thank you!
+
 ## License
 
 MIT
