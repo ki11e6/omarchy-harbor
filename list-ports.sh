@@ -1,10 +1,22 @@
 #!/bin/bash
 #
 # Emit listening TCP ports as {"ok": bool, "unprivilegedPortStart": n,
-# "ports": [...]}, where ports holds {port, scope, address, process, pid,
-# uid, starttime, project, cwd} objects (nine fields — the arity guard and
-# the jq assembly both depend on that count), sorted by port, one entry per
-# port.
+# "ephemeralStart": n, "ephemeralEnd": n, "ports": [...], "occupied": [...]},
+# where ports holds {port, scope, address, process, pid, uid, starttime,
+# project, cwd} objects (nine fields — the arity guard and the jq assembly
+# both depend on that count), sorted by port, one entry per port.
+#
+# ports answers "who holds this?"; occupied answers "can I bind this?". They
+# are not the same set. `ss -l` shows only LISTEN, but a socket in any other
+# live state still refuses a bind — a process that pinned a source port for
+# an outbound connection owns that port completely while being absent from
+# every listener table. Answering from ports alone reports such a port free
+# and hands the user the EADDRINUSE this tool exists to prevent, so occupied
+# carries every port the machine holds, whatever the socket is doing.
+#
+# TIME-WAIT is excluded from occupied on purpose: SO_REUSEADDR binds straight
+# over it and essentially every dev server sets it, so counting it would
+# manufacture a false "taken".
 #
 # project is the basename of the nearest ancestor of cwd carrying a project
 # marker (.git, package.json, ...), so a Laravel server started in public/
@@ -33,7 +45,7 @@
 set -o pipefail
 
 fail() {
-  printf '{"ok": false, "unprivilegedPortStart": 1024, "ports": []}\n'
+  printf '{"ok": false, "unprivilegedPortStart": 1024, "ephemeralStart": 0, "ephemeralEnd": 0, "ports": [], "occupied": []}\n'
   exit 0
 }
 
@@ -59,9 +71,11 @@ if [[ "${1:-}" == "--dedup" ]]; then
   exit 0
 fi
 
-# Capture the dump outside the pipeline so ss's own exit code is observable;
-# piped, jq succeeds on empty input and would mask a missing/failing ss.
-sockets=$(ss -Htlnp 2>/dev/null) || fail
+# One dump, two questions: -a so occupancy sees every state, -l applied as a
+# filter below so only listeners pay for the /proc identity walk. Captured
+# outside the pipeline so ss's own exit code is observable; piped, jq succeeds
+# on empty input and would mask a missing/failing ss.
+sockets=$(ss -Htanp 2>/dev/null) || fail
 
 # Below this port an unprivileged bind fails even when the port is free;
 # consumers use it to caveat "free" claims. Read, not hardcoded: rootless
@@ -69,11 +83,31 @@ sockets=$(ss -Htlnp 2>/dev/null) || fail
 ups=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null)
 [[ $ups =~ ^[0-9]+$ ]] || ups=1024
 
+# The kernel draws outbound source ports from this range, so a port inside it
+# can be free at the instant of the answer and taken by the time the user
+# binds. Consumers caveat reports and steer suggestions clear of it. Read, not
+# hardcoded; 0/0 means unreadable, and the answer layer then makes no claim
+# rather than inventing a range.
+read -r eph_start eph_end < <(cat /proc/sys/net/ipv4/ip_local_port_range 2>/dev/null)
+[[ $eph_start =~ ^[0-9]+$ && $eph_end =~ ^[0-9]+$ && $eph_end -ge $eph_start ]] \
+  || { eph_start=0; eph_end=0; }
+
+# Every port the machine holds in a bind-refusing state, listeners included.
+# Bare port numbers, so a thousand ESTABLISHED sockets cost one small array
+# and none of the per-row /proc work.
+occupied_json=$(
+  awk '$1 != "TIME-WAIT" { p = $4; sub(/.*:/, "", p); if (p ~ /^[0-9]+$/) print p }' <<<"$sockets" \
+    | sort -n -u | jq -R -s '[split("\n")[] | select(length > 0) | tonumber]'
+) || fail
+
 ports_json=$(
   {
     # `users` is the last read variable so it captures the rest of the line;
     # process names containing spaces would otherwise break the regex match.
-    while read -r _ _ _ local _ users; do
+    while read -r state _ _ local _ users; do
+      # The row table is listeners only — the -l this dump traded away for
+      # occupancy, reapplied here. Everything below walks /proc per row.
+      [[ $state == "LISTEN" ]] || continue
       [[ -n $local ]] || continue
       addr="${local%:*}"
       port="${local##*:}"
@@ -156,4 +190,5 @@ ports_json=$(
      pid: .[4], uid: .[5], starttime: .[6], project: .[7], cwd: .[8]}]'
 ) || fail
 
-printf '{"ok": true, "unprivilegedPortStart": %s, "ports": %s}\n' "$ups" "$ports_json"
+printf '{"ok": true, "unprivilegedPortStart": %s, "ephemeralStart": %s, "ephemeralEnd": %s, "ports": %s, "occupied": %s}\n' \
+  "$ups" "$eph_start" "$eph_end" "$ports_json" "$occupied_json"

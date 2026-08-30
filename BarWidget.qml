@@ -10,6 +10,10 @@ BarWidget {
   // o.bind registers a Lua callback, so the binds JSON carries no command —
   // the bind's description is the only identifiable handle.
   property string bindLabel: ""
+  // "no binding" is a claim and needs the same evidence a free port does: an
+  // empty bindLabel from a probe that never ran means nothing was learned, not
+  // that nothing is bound. Same invariant as the probe's ok envelope.
+  property string bindState: "unknown"   // "unknown" | "ok" | "failed"
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -24,8 +28,16 @@ BarWidget {
   }
 
   function loadBinds(raw) {
-    var binds = []
-    try { binds = JSON.parse(raw || "[]") } catch (e) { binds = [] }
+    var binds = null
+    try { binds = JSON.parse(raw || "") } catch (e) { binds = null }
+    // A working `hyprctl binds -j` always yields an array; anything else is a
+    // probe that failed, not a machine without bindings.
+    if (!Array.isArray(binds)) {
+      root.bindState = "failed"
+      root.bindLabel = ""
+      return
+    }
+    root.bindState = "ok"
     for (var i = 0; i < binds.length; i++) {
       var d = String(binds[i].description || "").toLowerCase()
       if (d.indexOf("harbor") === -1) continue
@@ -46,6 +58,13 @@ BarWidget {
       waitForEnd: true
       onStreamFinished: root.loadBinds(text)
     }
+    // hyprctl missing, or not a Hyprland session: no payload to trust.
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.bindState = "failed"
+        root.bindLabel = ""
+      }
+    }
   }
 
   WidgetButton {
@@ -53,9 +72,14 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "󰀱"
+    // The "set one" nudge is only shown on evidence: a probe that read the
+    // binds and found none. A failed or pending lookup says nothing rather
+    // than sending the user to edit a file that may already be correct.
     tooltipText: root.bindLabel !== ""
       ? "Harbor — is this port free?\n" + root.bindLabel
-      : "Harbor — is this port free?\nNo keybinding set — add one in ~/.config/hypr/bindings.lua"
+      : root.bindState === "ok"
+        ? "Harbor — is this port free?\nNo keybinding set — add one in ~/.config/hypr/bindings.lua"
+        : "Harbor — is this port free?"
     onPressed: function(mouseButton) {
       if (!root.bar) return
       // Same IPC path as the keybinding so click and hotkey behave identically.

@@ -17,6 +17,11 @@ Item {
   property int selectedIndex: 0
   property bool cursorActive: false
   property var ports: []
+  // Ports held in a bind-refusing state that is not LISTEN — an outbound
+  // connection pinned to a source port owns it completely while appearing in
+  // no listener table. Bare numbers: these have no holder Harbor can show,
+  // they only make "is it free" answerable.
+  property var occupiedPorts: []
   // "unknown" until a probe completes; nothing may claim a port is free
   // outside "ok" — a failed probe must never render as an empty (all-free)
   // machine.
@@ -24,6 +29,10 @@ Item {
   // Below this, a port can be free and still refuse an unprivileged bind.
   // Supplied by the probe (it reads the sysctl); 1024 is the fallback.
   property int unprivilegedPortStart: 1024
+  // The kernel's outbound source-port range. 0/0 means the probe could not
+  // read it, and an unread range asserts nothing.
+  property int ephemeralStart: 0
+  property int ephemeralEnd: 0
   // Set by ctrl+k; a second ctrl+k on the same still-alive process escalates
   // to SIGKILL. Keyed on pid AND starttime so a recycled PID cannot inherit
   // the armed escalation.
@@ -39,6 +48,10 @@ Item {
   // The filter doubles as a question when it is exactly a port number.
   readonly property int queriedPort: Answers.queriedPortOf(root.filterText)
 
+  // Both halves of the probe unioned once, so the banner asks a set instead of
+  // rescanning the row table twice.
+  readonly property var occupancy: Answers.occupancy(root.ports, root.occupiedPorts)
+
   // The answer — the hero of the overlay. {headline, detail, tone} or null.
   // Kill outcomes take precedence; otherwise null outside probeState "ok" —
   // never claim a port is free on a failed or pending probe; a suggestion is
@@ -52,18 +65,27 @@ Item {
         ? { headline: root.refusalText.substring(0, cut), detail: root.refusalText.substring(cut + 3), tone: "warn" }
         : { headline: root.refusalText, detail: "", tone: "warn" }
     }
+    // The verify sequence runs for up to ~3s; without this the answer zone
+    // keeps showing the pre-kill answer and only the dimmed row says anything
+    // happened.
+    if (root.killState === "terminating")
+      return { headline: root.killPort + " terminating…", detail: "", tone: "plain" }
     if (root.killState === "freed")
       return { headline: root.killPort + " is now free", detail: "", tone: "good" }
     if (root.killState === "survived")
       return { headline: root.killPort + " still listening", detail: "ctrl+k again to force", tone: "warn" }
     if (root.probeState !== "ok" || root.queriedPort === 0) return null
-    if (!Answers.portInUse(root.ports, root.queriedPort)) {
+    if (!Answers.portInUse(root.occupancy, root.queriedPort)) {
       return { headline: root.queriedPort + " is free",
                detail: root.queriedPort < root.unprivilegedPortStart
-                 ? "needs root or CAP_NET_BIND_SERVICE" : "",
+                 ? "needs root or CAP_NET_BIND_SERVICE"
+                 : Answers.inEphemeralRange(root.queriedPort, root.ephemeralStart, root.ephemeralEnd)
+                   ? "in the kernel's outbound port range — a connection can claim it"
+                   : "",
                tone: "good" }
     }
-    var next = Answers.nextFreePort(root.ports, root.queriedPort, root.unprivilegedPortStart)
+    var next = Answers.nextFreePort(root.occupancy, root.queriedPort, root.unprivilegedPortStart,
+                                    root.ephemeralStart, root.ephemeralEnd)
     return { headline: next > 0
                ? root.queriedPort + " is taken — " + next + " is free"
                : root.queriedPort + " is taken",
@@ -168,8 +190,16 @@ Item {
     var ok = parsed !== null && parsed.ok === true && Array.isArray(parsed.ports)
     root.probeState = ok ? "ok" : "failed"
     root.ports = ok ? parsed.ports : []
+    root.occupiedPorts = ok && Array.isArray(parsed.occupied) ? parsed.occupied : []
     var floor = ok ? parseInt(parsed.unprivilegedPortStart, 10) : NaN
     root.unprivilegedPortStart = isFinite(floor) && floor >= 0 ? floor : 1024
+    // Both ends or neither: a half-read range would caveat and steer against a
+    // boundary the kernel never stated.
+    var es = ok ? parseInt(parsed.ephemeralStart, 10) : NaN
+    var ee = ok ? parseInt(parsed.ephemeralEnd, 10) : NaN
+    var rangeOk = isFinite(es) && isFinite(ee) && es > 0 && ee >= es
+    root.ephemeralStart = rangeOk ? es : 0
+    root.ephemeralEnd = rangeOk ? ee : 0
     root.disarmPointer()
     if (root.lastKilledKey) {
       var alive = false
@@ -232,14 +262,6 @@ Item {
     root.rebuildDisplay()
   }
 
-  // An iface-bound listener has nothing on loopback — localhost cannot reach
-  // it, so open/copy must target the address it is actually bound to. IPv6
-  // literals get brackets so the result works as a URL.
-  function rowHost(row) {
-    if (row.scope !== "iface" || !row.address) return "localhost"
-    return row.address.indexOf(":") >= 0 ? "[" + row.address + "]" : row.address
-  }
-
   // Exec BEFORE dismiss in both actions: dismiss() unloads this plugin (no
   // keepLoaded), and a detached spawn queued after the unload no longer
   // survives it on current shells — the 2026-08-20 verification of the
@@ -247,7 +269,7 @@ Item {
   function openSelected() {
     if (root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    Quickshell.execDetached(["xdg-open", "http://" + root.rowHost(row) + ":" + row.port])
+    Quickshell.execDetached(["xdg-open", "http://" + Answers.hostFor(row) + ":" + row.port])
     root.dismiss()
   }
 
@@ -257,7 +279,7 @@ Item {
     // Argv-style detached wl-copy dies silently under execDetached here; the
     // shell's own plugins pipe through a shell instead (network Panel.qml:450,
     // tailscale Service.qml:109). Follow the proven pattern.
-    var text = root.rowHost(row) + ":" + row.port
+    var text = Answers.hostFor(row) + ":" + row.port
     Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
     root.dismiss()
   }
@@ -402,18 +424,26 @@ Item {
 
   Process {
     id: checkProc
+    // Deliberately -l, unlike the occupancy probe's -a: killing a listener
+    // leaves its accepted connections in TIME-WAIT on the same port, and -a
+    // would read those as "still listening" and report a successful kill as a
+    // survivor. The question here is whether the listener let go.
     command: ["sh", "-c", "ss -Htln \"sport = :$1\"", "harbor-verify", root.killPort]
     stdout: StdioCollector { id: checkOut; waitForEnd: true }
-    // Exit code and stdout together: a failed ss and a free port both print
-    // nothing, and "freed" is a free-claim — it needs evidence, not silence.
-    onExited: function(exitCode) {
-      root.applyVerify(exitCode, String(checkOut.text || ""))
+    // Exit code, exit status and stdout together: a failed ss and a free port
+    // both print nothing, and "freed" is a free-claim — it needs evidence, not
+    // silence.
+    onExited: function(exitCode, exitStatus) {
+      root.applyVerify(exitCode, exitStatus, String(checkOut.text || ""))
     }
   }
 
-  function applyVerify(exitCode, out) {
+  function applyVerify(exitCode, exitStatus, out) {
     if (root.killState !== "terminating") return
-    if (exitCode !== 0) {
+    // A crashed ss is evidence for neither outcome — including the one
+    // killSelected cancels when a second ctrl+k lands mid-verify, which exits
+    // by signal and so carries a normal-looking code on some builds.
+    if (exitCode !== 0 || exitStatus !== 0) {
       // ss itself failed — evidence for neither outcome. "survived" is the
       // safe claim: it never asserts a port is free without proof.
       root.killState = "survived"
@@ -643,10 +673,13 @@ Item {
               readonly property bool terminating: root.killState === "terminating"
                 && rowItem.pid + ":" + rowItem.starttime === root.lastKilledKey
 
-              // "localhost" and "all interfaces" say it best; for a single
-              // interface the literal address is the informative thing.
-              readonly property string scopeLabel: scope === "local" ? "localhost"
-                                                 : scope === "any" ? "all interfaces"
+              // "all interfaces" and "localhost" say it best; anything holding
+              // one specific address — including a 127.* that is not 127.0.0.1 —
+              // is only described by the address itself. Same rule the open/copy
+              // host uses, so the row cannot label a listener "localhost" while
+              // ctrl+y copies 127.0.0.2.
+              readonly property string scopeLabel: scope === "any" ? "all interfaces"
+                                                 : Answers.hostFor(rowItem) === "localhost" ? "localhost"
                                                  : address
               readonly property bool exposed: scope !== "local"
               // Empty segments collapse so no separator dangles. Project

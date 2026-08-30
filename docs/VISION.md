@@ -130,15 +130,33 @@ about its own scope:
 
 - **TCP only.** A UDP listener on 3000 does not block a TCP bind, so it is not
   relevant to the question and is not shown.
-- **Listening sockets only.** `ss -l` does not show `TIME_WAIT`. Most dev
-  servers set `SO_REUSEADDR`, for which `TIME_WAIT` does not block a bind.
+- **Listeners are shown; occupancy is wider.** The row table is listeners only,
+  because only a listener has a holder worth naming. The free/taken answer is
+  not: a socket in any bind-refusing state counts, listening or not. They are
+  different sets on purpose — a process that pinned a source port for an
+  outbound connection owns that port completely and appears in no listener
+  table, and `SO_REUSEADDR` does not rescue a bind against it. Such a port
+  answers "taken" with no row to point at.
+- **TIME-WAIT counts as free.** The one bind-refusing state Harbor ignores on
+  purpose: `SO_REUSEADDR`, which essentially every dev server sets, binds
+  straight over it, so counting it would report a bindable port as taken. A
+  server that does not set it can still meet `EADDRINUSE` on a port Harbor
+  called free.
 - **Process identity for your own processes only.** `ss` cannot name another
   user's process without root; those rows show `?` and say so.
-- **Free is not always bindable.** Below the kernel's
-  `net.ipv4.ip_unprivileged_port_start` (1024 by default, lowered by some
-  rootless-container setups) a port can be genuinely free and still unbindable
-  without root or `CAP_NET_BIND_SERVICE`. Harbor reports free/used truthfully
-  and states the caveat rather than guessing the caller's capabilities.
+- **Free is not always bindable.** Two ranges where a truthful "free" still
+  is not a promise, both read from the kernel rather than hardcoded:
+  - Below `net.ipv4.ip_unprivileged_port_start` (1024 by default, lowered by
+    some rootless-container setups) a port can be genuinely free and still
+    unbindable without root or `CAP_NET_BIND_SERVICE`.
+  - Inside `net.ipv4.ip_local_port_range` the kernel draws outbound source
+    ports, so a port free at the instant of the answer can be taken a moment
+    later by a connection nobody chose to make.
+
+  Harbor reports free/used truthfully and states the caveat rather than
+  guessing the caller's capabilities or the kernel's next move. Suggestions
+  are held to a stricter bar than reports — they never land in either range,
+  because a recommendation that needs a caveat is not a recommendation.
 
 ## Design principles
 
@@ -158,3 +176,4 @@ about its own scope:
 - Guide compliance review: `docs/reviews/2026-08-20-development-guide-review.md`
 - Scope removal plan: `docs/plans/2026-08-30-scope-removal.md`
 - Answer-machine plan: `docs/plans/2026-08-30-port-answer-machine.md`
+- Occupancy audit: `docs/reviews/2026-08-30-occupancy-audit.md`
