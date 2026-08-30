@@ -24,15 +24,25 @@ Item {
   // Below this, a port can be free and still refuse an unprivileged bind.
   // Supplied by the probe (it reads the sysctl); 1024 is the fallback.
   property int unprivilegedPortStart: 1024
-  // Set by ctrl+k; a second ctrl+k on the same still-alive PID escalates to SIGKILL.
-  property string lastKilledPid: ""
+  // Set by ctrl+k; a second ctrl+k on the same still-alive process escalates
+  // to SIGKILL. Keyed on pid AND starttime so a recycled PID cannot inherit
+  // the armed escalation.
+  property string lastKilledKey: ""
+  // Kill outcome: "" | "terminating" | "freed" | "survived".
+  property string killState: ""
+  property string killPort: ""
+  property int verifyAttempt: 0
 
   // The filter doubles as a question when it is exactly a port number.
   readonly property int queriedPort: Answers.queriedPortOf(root.filterText)
 
-  // The answer line. Empty outside probeState "ok" — never claim a port is
-  // free on a failed or pending probe; a suggestion is a free-claim too.
+  // The answer line. Kill outcomes take precedence; otherwise empty outside
+  // probeState "ok" — never claim a port is free on a failed or pending
+  // probe; a suggestion is a free-claim too. ("is now free" rests on the
+  // port-scoped ss check, not on the probe, so it carries its own evidence.)
   readonly property string bannerText: {
+    if (root.killState === "freed") return root.killPort + " is now free"
+    if (root.killState === "survived") return "still listening — ctrl+k again to force"
     if (root.probeState !== "ok" || root.queriedPort === 0) return ""
     if (!Answers.portInUse(root.ports, root.queriedPort)) {
       var caveat = root.queriedPort < root.unprivilegedPortStart
@@ -70,7 +80,8 @@ Item {
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = true
-    root.lastKilledPid = ""
+    root.lastKilledKey = ""
+    root.clearKillFeedback()
     root.disarmPointer()
     root.refresh()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -88,12 +99,22 @@ Item {
 
   function close() {
     root.opened = false
+    root.clearKillFeedback()
   }
 
   function dismiss() {
     root.opened = false
+    root.clearKillFeedback()
     if (root.shell && typeof root.shell.hide === "function")
       root.shell.hide((root.manifest && root.manifest.id) || "io.github.ki11e6.harbor")
+  }
+
+  // A stale "3000 is now free" banner must not outlive its query.
+  function clearKillFeedback() {
+    root.killState = ""
+    root.killPort = ""
+    root.verifyAttempt = 0
+    verifyTimer.stop()
   }
 
   function toggle() {
@@ -118,11 +139,11 @@ Item {
     var floor = ok ? parseInt(parsed.unprivilegedPortStart, 10) : NaN
     root.unprivilegedPortStart = isFinite(floor) && floor >= 0 ? floor : 1024
     root.disarmPointer()
-    if (root.lastKilledPid) {
+    if (root.lastKilledKey) {
       var alive = false
       for (var i = 0; i < root.ports.length; i++)
-        if (root.ports[i].pid === root.lastKilledPid) alive = true
-      if (!alive) root.lastKilledPid = ""
+        if (root.ports[i].pid + ":" + root.ports[i].starttime === root.lastKilledKey) alive = true
+      if (!alive) root.lastKilledKey = ""
     }
     root.rebuildDisplay()
   }
@@ -173,6 +194,7 @@ Item {
   function setFilter(nextFilter) {
     root.filterText = nextFilter
     root.selectedIndex = 0
+    root.clearKillFeedback()
     root.disarmPointer()
     root.rebuildDisplay()
   }
@@ -195,10 +217,18 @@ Item {
     if (root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
     if (!/^[0-9]+$/.test(row.pid)) return
-    killProc.command = (row.pid === root.lastKilledPid)
-      ? ["kill", "-9", row.pid]
-      : ["kill", row.pid]
-    root.lastKilledPid = row.pid
+    if (!/^[0-9]+$/.test(row.uid) || !/^[0-9]+$/.test(row.starttime)) return
+    if (!/^[0-9]+$/.test(row.port)) return
+    var key = row.pid + ":" + row.starttime
+    var signal = (key === root.lastKilledKey) ? "KILL" : "TERM"
+    root.lastKilledKey = key
+    root.killPort = row.port
+    root.killState = "terminating"
+    root.verifyAttempt = 0
+    // The helper re-checks pid+uid+starttime against live /proc before
+    // signaling; everything travels as argv, never interpolated.
+    killProc.command = ["bash", root.sourceDir() + "/kill-port.sh",
+                        row.pid, row.uid, row.starttime, signal]
     killProc.running = true
   }
 
@@ -240,14 +270,50 @@ Item {
 
   Process {
     id: killProc
-    onExited: refreshDelay.restart()
+    // Verify the outcome whether or not the helper signaled: if it refused
+    // because the process already vanished, the port is likely free and the
+    // banner should say so.
+    onExited: {
+      root.verifyAttempt = 0
+      verifyTimer.interval = 300
+      verifyTimer.restart()
+    }
   }
 
-  // Give the killed process a moment to release its socket before re-listing.
+  // The verification question is "is the port free", not "is the process
+  // gone" — a process can die while something else takes the port, and can
+  // survive having closed its socket. Port-scoped ss checks at ~300ms/1s/3s;
+  // never the full probe (which grows a /proc walk in later phases). One
+  // full refresh once the sequence resolves.
   Timer {
-    id: refreshDelay
-    interval: 350
-    onTriggered: root.refresh()
+    id: verifyTimer
+    onTriggered: {
+      root.verifyAttempt += 1
+      checkProc.running = false
+      checkProc.running = true
+    }
+  }
+
+  Process {
+    id: checkProc
+    command: ["sh", "-c", "ss -Htln \"sport = :$1\"", "harbor-verify", root.killPort]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyVerify(text)
+    }
+  }
+
+  function applyVerify(out) {
+    if (root.killState !== "terminating") return
+    if (String(out || "").trim() === "") {
+      root.killState = "freed"
+      root.refresh()
+      return
+    }
+    if (root.verifyAttempt === 1) { verifyTimer.interval = 700; verifyTimer.restart(); return }
+    if (root.verifyAttempt === 2) { verifyTimer.interval = 2000; verifyTimer.restart(); return }
+    root.killState = "survived"
+    root.refresh()
   }
 
   PanelWindow {
@@ -399,6 +465,8 @@ Item {
               required property string starttime
 
               readonly property bool hasCursor: root.cursorActive && index === root.selectedIndex
+              readonly property bool terminating: root.killState === "terminating"
+                && rowItem.pid + ":" + rowItem.starttime === root.lastKilledKey
 
               // "localhost" and "all interfaces" say it best; for a single
               // interface the literal address is the informative thing.
@@ -424,6 +492,7 @@ Item {
               height: root.rowHeight
               radius: root.cornerRadius
               color: rowItem.hasCursor ? root.selectedBackground : "transparent"
+              opacity: rowItem.terminating ? 0.55 : 1
 
               Column {
                 anchors.left: parent.left

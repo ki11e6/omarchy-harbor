@@ -552,21 +552,29 @@ Otherwise a stale "3000 is now free" banner can outlive its query.
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `bash -n` on the kill helper script
-- [ ] Helper refuses to signal when the supplied starttime does not match a live
+- [x] `bash -n` on the kill helper script (`kill-port.sh`)
+- [x] Helper refuses to signal when the supplied starttime does not match a live
       PID's actual starttime (exercise with a real PID and a wrong value)
-- [ ] Helper exits non-zero, and signals nothing, for a PID that no longer exists
-- [ ] `ss -Htln "sport = :8123"` is empty with nothing on 8123 and non-empty with
+      — also verified: wrong uid refused, non-TERM/KILL signal refused, pid 1
+      refused, and exact identity match does signal (exit 0, process died)
+- [x] Helper exits non-zero, and signals nothing, for a PID that no longer exists
+- [x] `ss -Htln "sport = :8123"` is empty with nothing on 8123 and non-empty with
       a server on it — the loop's entire predicate
-- [ ] The verification loop issues no `/proc` reads and no project walk: with
-      Phase 6 landed, a kill triggers exactly one full probe, at the end
+- [x] The verification loop issues no `/proc` reads and no project walk: by
+      construction, `checkProc` runs only `ss -Htln "sport = :$1"`, and the one
+      full `refresh()` fires only when the sequence resolves (freed/survived)
 
 #### Manual Verification
-- [ ] `python -m http.server 8123`, `ctrl+k` → row greys, then **"8123 is now free"**
-- [ ] A SIGTERM-ignoring server → `ctrl+k` ends in "still listening — ctrl+k again
-      to force"; the second press escalates and frees it
-- [ ] Kill a server, let its PID be recycled onto a different listener, press
-      `ctrl+k` again → the second press does **not** SIGKILL the new process (G7)
+- [x] `python -m http.server 8123`, `ctrl+k` → row greys, then **"8123 is now free"**
+      (verified live via wtype + screenshot)
+- [x] A SIGTERM-ignoring server → `ctrl+k` ends in "still listening — ctrl+k again
+      to force"; the second press escalates and frees it (verified live; the
+      shell's job control reported the process `Killed`, confirming SIGKILL)
+- [x] Kill a server, let its PID be recycled onto a different listener, press
+      `ctrl+k` again → the second press does **not** SIGKILL the new process (G7).
+      Not stageable live (PID recycling can't be forced reliably); the guarantee
+      is covered by two fixture-verified layers: the escalation key includes
+      starttime, and the helper independently refuses any starttime mismatch.
 
 ---
 
