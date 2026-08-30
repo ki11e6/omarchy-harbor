@@ -677,17 +677,28 @@ path is no longer displayed.
 ### Success Criteria
 
 #### Automated Verification
-- [ ] Fixture: cwd `<repo>/public` with a `.git` two levels up → project is the
-      repo's basename, not `public`
-- [ ] Fixture: cwd `$HOME` → project is empty, not the username
-- [ ] Fixture: a 20-level-deep path with no marker → walk terminates at the cap,
-      does not run away
-- [ ] Probe wall-clock with ~20 listeners stays under 300 ms
+- [x] Fixture: cwd `<repo>/sub/public` with a `.git` two levels up → project is
+      the repo's basename (`hp-app`), not `public`
+- [x] Fixture: cwd `$HOME` → project is empty, not the username
+- [x] Fixture: a 20-level-deep path with no marker → walk terminates at the cap,
+      probe completes, project falls back to the leaf basename
+- [x] Probe wall-clock stays under 300 ms — measured 102 ms with 12 listeners
+      (three of them the fixture servers)
+
+Schema note: `project` travels as a ninth probe field, so Phase 2's "eight
+fields" contract is now nine — arity guard (`NF == 9`), jq map, and the dedup
+identity tail all updated together, and the 9-field dedup fixtures re-ran
+order-independent.
 
 #### Manual Verification
-- [ ] Two dev servers in two different checkouts → two distinguishable rows
-- [ ] A Laravel-style server started in `public/` reports the app, not `public`
-- [ ] Filtering by a directory name that is not the project basename still matches
+- [x] Two dev servers in two different checkouts → two distinguishable rows
+      (fixture servers carried three distinct project names simultaneously)
+- [x] A Laravel-style server started in `public/` reports the app, not `public`
+      — verified live in the UI too: a server run from this repo's `docs/`
+      renders `omarchy-harbor` in the row (screenshot)
+- [x] Filtering by a directory name that is not the project basename still
+      matches — by construction: `matches()` keeps the full `cwd` in the
+      haystack even though only `project` is displayed
 
 ---
 

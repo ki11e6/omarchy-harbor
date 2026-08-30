@@ -173,7 +173,8 @@ Item {
           port: String(row.port || ""), process: String(row.process || ""),
           pid: String(row.pid || ""), cwd: String(row.cwd || ""),
           scope: String(row.scope || ""), address: String(row.address || ""),
-          uid: String(row.uid || ""), starttime: String(row.starttime || "")
+          uid: String(row.uid || ""), starttime: String(row.starttime || ""),
+          project: String(row.project || "")
         })
     }
     if (displayModel.count === 0) root.selectedIndex = 0
@@ -482,6 +483,7 @@ Item {
               required property string address
               required property string uid
               required property string starttime
+              required property string project
 
               readonly property bool hasCursor: root.cursorActive && index === root.selectedIndex
               readonly property bool terminating: root.killState === "terminating"
@@ -492,13 +494,6 @@ Item {
               readonly property string scopeLabel: scope === "local" ? "localhost"
                                                  : scope === "any" ? "all interfaces"
                                                  : address
-              // Project slot: cwd basename until the marker walk (Phase 6)
-              // replaces it with the checkout name.
-              readonly property string project: {
-                if (!cwd || cwd === "-" || cwd === "/") return ""
-                var parts = cwd.split("/")
-                return parts[parts.length - 1]
-              }
               // Empty segments collapse so no separator dangles.
               readonly property string contextLine: {
                 var parts = [rowItem.scopeLabel]
