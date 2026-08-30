@@ -712,7 +712,7 @@ Item {
             visible: displayModel.count === 0 && root.banner === null
 
             Text {
-              text: "󰛳"
+              text: "󰀱"
               color: root.selectedText
               opacity: 0.8
               font.family: root.fontFamily

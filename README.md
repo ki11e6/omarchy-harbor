@@ -1,6 +1,10 @@
-# Harbor
+# Harbor 󰀱
 
-A summonable Omarchy shell overlay that answers the `EADDRINUSE` moment: type a port number and Harbor says **"3000 is free"**, or shows who holds it — named by project checkout, not thread name — with a suggested free port underneath and a verified kill one keystroke away.
+**Is this port free?** Harbor is a summonable Omarchy overlay that answers the
+`EADDRINUSE` moment: press a key, type a port number, and it says
+**"3000 is free"** — or shows who holds it, named by project checkout rather
+than thread name, with the next free port suggested underneath and a verified
+kill one keystroke away.
 
 See [docs/VISION.md](docs/VISION.md) for what Harbor is for and what it
 deliberately does not do.
@@ -9,17 +13,40 @@ deliberately does not do.
 
 ![Harbor overlay](preview.png)
 
-## Keys
+## The problem it solves
 
-| Key | Action |
-|-----|--------|
-| type | Filter the list (e.g. `3000`, `node`, or a directory name). A filter that is exactly a port number is a question: Harbor answers **"3000 is free"** (with a caveat below the privileged-port floor) or suggests the next free port when it's taken |
-| `enter` / click | Open `http://localhost:<port>` in the browser |
-| `ctrl+y` | Copy `localhost:<port>` to the clipboard |
-| `ctrl+k` | Kill the owning process (SIGTERM) and verify: the banner reports **"3000 is now free"** or **"still listening — ctrl+k again to force"** (SIGKILL). Kills that can't happen say why — root-owned, container-held, or identity unreadable |
-| `ctrl+r` | Refresh the list |
-| arrows / `ctrl+n` / `ctrl+p` | Move selection |
-| `esc` | Clear the filter, then close |
+```
+Error: listen EADDRINUSE: address already in use :::3000
+```
+
+The error names a port, not a process. `lsof -i :3000` needs flags recalled
+mid-frustration and answers `node` — which is every JavaScript project on the
+machine. You have two ways out: **free the port**, or **move your service to
+another one**. Harbor makes both a single keystroke.
+
+## Features
+
+- **Affirmative answers** — type `8080` and get **"8080 is free"**, never an
+  ambiguous empty list. Below the privileged-port floor the answer carries a
+  "needs root" caveat.
+- **Next free port** — when 3000 is taken, Harbor says **"3001 is free"** so
+  you can move instead of fight.
+- **Named by project** — rows read `3000 · node / my-app`, resolved by walking
+  from the server's working directory to the nearest `.git`/`package.json`.
+  Four `node` processes become four project names. No framework guessing.
+- **Verified kills** — `ctrl+k` sends SIGTERM, re-checks the socket, and
+  reports **"3000 is now free"** or **"still listening — ctrl+k again to
+  force"**. The signal is identity-checked (pid + uid + start time) so a
+  recycled PID can never catch a kill meant for its predecessor.
+- **Refusals explained** — a root-owned port says *needs sudo*; a
+  `docker-proxy` port says *docker stop frees this* instead of offering a kill
+  dockerd would undo. No silent no-ops.
+- **Exposure at a glance** — an urgent dot marks listeners reachable beyond
+  localhost; something bound to `192.168.1.5:3000` still blocks your bind, so
+  Harbor shows it.
+- **Honest failure** — a failed or hung probe says so. Harbor never renders a
+  broken probe as "everything is free".
+- **Zero idle cost** — nothing polls; the probe runs when you summon it.
 
 ## Install
 
@@ -27,17 +54,37 @@ deliberately does not do.
 omarchy plugin add https://github.com/ki11e6/omarchy-harbor --enable
 ```
 
-Then bind a key in `~/.config/hypr/bindings.lua`:
+## Set the keybinding
+
+Harbor is meant to be summoned from the keyboard. Add to
+`~/.config/hypr/bindings.lua`:
 
 ```lua
 o.bind("SUPER + ALT + P", "Harbor", "omarchy-shell shell toggle io.github.ki11e6.harbor")
 ```
 
-### Bar widget
+Keep the description `"Harbor"` — the bar icon's hover tooltip looks the
+binding up by that name and shows it (`Harbor — is this port free? SUPER+ALT+P`).
+Until a binding exists, the tooltip reminds you to set one.
 
-Enabling Harbor also places a stateless 󰛳 button on the bar (no polling, no idle
-cost) that toggles the same overlay — `omarchy plugin add --enable` asks which
-section, defaulting to `right`. Move it later with:
+## Keys
+
+| Key | Action |
+|-----|--------|
+| type | Filter the list — or ask: a filter that is exactly a port number gets the free/taken answer |
+| `enter` / click | Open `http://localhost:<port>` in the browser |
+| `ctrl+k` | Kill the owner (SIGTERM) and verify; press again on a survivor to escalate to SIGKILL |
+| `ctrl+y` | Copy `localhost:<port>` to the clipboard |
+| `ctrl+r` | Refresh the list |
+| arrows / `ctrl+n` / `ctrl+p` | Move selection |
+| `esc` | Clear the filter, then close |
+
+## Bar widget
+
+Enabling Harbor also places a stateless 󰀱 anchor on the bar (no polling, no
+idle cost) that toggles the same overlay; hovering it shows the plugin name
+and your keybinding. `omarchy plugin add --enable` asks which section,
+defaulting to `right`. Move it later with:
 
 ```bash
 omarchy bar move io.github.ki11e6.harbor --section <left|center|right>
@@ -47,7 +94,7 @@ The bar entry doubles as the plugin's enable flag, so there is no
 keyboard-only install: removing the button from the bar
 (`omarchy plugin disable`) disables the overlay too.
 
-### Instant open/close (recommended)
+## Instant open/close (recommended)
 
 Omarchy exempts its own overlays from layer animations, but that rule is
 namespace-anchored and can't cover third-party plugins. Add one line to your
