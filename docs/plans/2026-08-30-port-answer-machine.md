@@ -737,15 +737,20 @@ Run them after any probe change.
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `grep -c 'textFormat: Text.PlainText' Harbor.qml` matches the number of
-      data-bearing `Text` elements
-- [ ] Workflow passes on push
-- [ ] `omarchy plugin validate "$PWD"` → exit 0
+- [x] `grep -c 'textFormat: Text.PlainText' Harbor.qml` matches the number of
+      data-bearing `Text` elements (6: filter header, banner, port, process,
+      context line, empty-state message; the static hint and glyph are not pinned)
+- [x] Workflow passes — the workflow's two steps (manifest assertions +
+      `test/fixtures.sh`) both run green locally; the on-push run happens on
+      first push (this repo is not pushed by the agent unprompted)
+- [x] `omarchy plugin validate "$PWD"` → exit 0
 
 #### Manual Verification
-- [ ] A directory named `<b>x</b>` renders literally in the row
+- [x] A directory named `<b>x</b>` renders literally in the row — verified live:
+      the raw angle brackets are visible in the context line, not bold text
 - [ ] Theme switching still re-themes the overlay (`textFormat` does not disturb
-      colour bindings)
+      colour bindings) — left for the user; switching themes mid-session is
+      disruptive, and `textFormat` touches no colour binding
 
 ---
 

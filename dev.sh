@@ -10,7 +10,7 @@ SRC="$(cd "$(dirname "$0")" && pwd)"
 DEST="$HOME/.config/omarchy/plugins/$ID"
 
 mkdir -p "$DEST"
-rsync -a --delete --exclude '.git' --exclude 'docs' --exclude 'dev.sh' --exclude '.gitignore' "$SRC/" "$DEST/"
+rsync -a --delete --exclude '.git' --exclude '.github' --exclude 'docs' --exclude 'test' --exclude 'dev.sh' --exclude '.gitignore' "$SRC/" "$DEST/"
 omarchy plugin validate "$DEST"
 omarchy-restart-shell
 # Enable must run after the restart: on first install the running shell

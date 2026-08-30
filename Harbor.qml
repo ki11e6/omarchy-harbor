@@ -427,6 +427,12 @@ Item {
             anchors.rightMargin: Style.spacing.md
             anchors.verticalCenter: parent.verticalCenter
             text: root.filterText || "Filter ports…"
+            // Qt's AutoText parses tag-shaped input as rich text; every
+            // dynamic string here is user- or process-controlled, so pin
+            // plain text. (Defence in depth: comm is 15 bytes and paths
+            // can't contain "/", so a working <img> is hard to build — and
+            // this does not cover bidi/zero-width spoofing.)
+            textFormat: Text.PlainText
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
             font.family: root.fontFamily
@@ -453,6 +459,7 @@ Item {
           visible: root.bannerText !== ""
           width: parent.width
           text: root.bannerText
+          textFormat: Text.PlainText
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
@@ -524,6 +531,7 @@ Item {
                   Text {
                     id: portText
                     text: rowItem.port
+                    textFormat: Text.PlainText
                     color: rowItem.hasCursor ? root.selectedText : root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
@@ -533,6 +541,7 @@ Item {
                   Text {
                     width: parent.width - portText.width - Style.spacing.md
                     text: rowItem.process
+                    textFormat: Text.PlainText
                     color: rowItem.hasCursor ? root.selectedText : root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
@@ -543,6 +552,7 @@ Item {
                 Text {
                   width: parent.width
                   text: rowItem.contextLine
+                  textFormat: Text.PlainText
                   color: rowItem.hasCursor ? root.selectedText : root.foreground
                   opacity: 0.65
                   font.family: root.fontFamily
@@ -593,6 +603,7 @@ Item {
                   : root.probeState === "unknown" ? "Reading listening sockets…"
                   : root.filterText ? "No ports match “" + root.filterText + "”"
                   : "Nothing is listening on localhost"
+              textFormat: Text.PlainText
               color: root.foreground
               opacity: 0.7
               font.family: root.fontFamily

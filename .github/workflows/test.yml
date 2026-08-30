@@ -1,0 +1,20 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate manifest
+        run: |
+          jq -e '.schemaVersion == 1' manifest.json
+          jq -e '(.kinds | index("overlay")) != null' manifest.json
+          jq -e '(.kinds | index("bar-widget")) != null' manifest.json
+          test -f "$(jq -r '.entryPoints.overlay' manifest.json)"
+          test -f "$(jq -r '.entryPoints.barWidget' manifest.json)"
+      - name: Fixtures
+        run: bash test/fixtures.sh
