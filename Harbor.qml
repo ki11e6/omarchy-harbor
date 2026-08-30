@@ -39,22 +39,35 @@ Item {
   // The filter doubles as a question when it is exactly a port number.
   readonly property int queriedPort: Answers.queriedPortOf(root.filterText)
 
-  // The answer line. Kill outcomes take precedence; otherwise empty outside
-  // probeState "ok" — never claim a port is free on a failed or pending
-  // probe; a suggestion is a free-claim too. ("is now free" rests on the
-  // port-scoped ss check, not on the probe, so it carries its own evidence.)
-  readonly property string bannerText: {
-    if (root.refusalText) return root.refusalText
-    if (root.killState === "freed") return root.killPort + " is now free"
-    if (root.killState === "survived") return "still listening — ctrl+k again to force"
-    if (root.probeState !== "ok" || root.queriedPort === 0) return ""
+  // The answer — the hero of the overlay. {headline, detail, tone} or null.
+  // Kill outcomes take precedence; otherwise null outside probeState "ok" —
+  // never claim a port is free on a failed or pending probe; a suggestion is
+  // a free-claim too. ("is now free" rests on the port-scoped ss check, not
+  // on the probe, so it carries its own evidence.) Tones: "good" news in
+  // accent, "warn" in urgent, "plain" in foreground.
+  readonly property var banner: {
+    if (root.refusalText) {
+      var cut = root.refusalText.indexOf(" — ")
+      return cut > 0
+        ? { headline: root.refusalText.substring(0, cut), detail: root.refusalText.substring(cut + 3), tone: "warn" }
+        : { headline: root.refusalText, detail: "", tone: "warn" }
+    }
+    if (root.killState === "freed")
+      return { headline: root.killPort + " is now free", detail: "", tone: "good" }
+    if (root.killState === "survived")
+      return { headline: root.killPort + " still listening", detail: "ctrl+k again to force", tone: "warn" }
+    if (root.probeState !== "ok" || root.queriedPort === 0) return null
     if (!Answers.portInUse(root.ports, root.queriedPort)) {
-      var caveat = root.queriedPort < root.unprivilegedPortStart
-        ? " · needs root or CAP_NET_BIND_SERVICE" : ""
-      return root.queriedPort + " is free" + caveat
+      return { headline: root.queriedPort + " is free",
+               detail: root.queriedPort < root.unprivilegedPortStart
+                 ? "needs root or CAP_NET_BIND_SERVICE" : "",
+               tone: "good" }
     }
     var next = Answers.nextFreePort(root.ports, root.queriedPort, root.unprivilegedPortStart)
-    return next > 0 ? next + " is free" : ""
+    return { headline: next > 0
+               ? root.queriedPort + " is taken — " + next + " is free"
+               : root.queriedPort + " is taken",
+             detail: "", tone: "plain" }
   }
 
   // Shares the [menu] surface tokens — themes that style the menu also style Harbor.
@@ -68,12 +81,26 @@ Item {
   readonly property int cornerRadius: Style.cornerRadius
   property string fontFamily: Style.font.menuFamily
   property int contentMargin: Style.spacing.panelPadding
-  property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
   property int contentSpacing: Style.spacing.md
   // Two text lines per row: identity above, context below.
   property int rowHeight: Math.max(Style.space(52), Style.font.body + Style.font.caption + Style.spacing.md * 2 + Style.space(2))
   property int cardWidth: Math.min(Style.space(520), panel.width - Style.gapsOut * 2)
-  property int cardHeight: Math.min(Style.space(420), panel.height - Style.gapsOut * 2)
+  // The card shrinks to its answer: "8080 is free" is a compact card, a long
+  // browse is a tall one. Heights come from the model, not laid-out items,
+  // so there is no binding cycle with the list area.
+  readonly property int cardMaxHeight: Math.min(Style.space(420), panel.height - Style.gapsOut * 2)
+  readonly property int listContentHeight: displayModel.count > 0
+    ? displayModel.count * root.rowHeight
+    : (root.banner !== null ? 0 : Style.space(150))
+  property int cardHeight: {
+    var content = queryLine.height + root.contentSpacing
+      + (root.banner !== null ? bannerBlock.height + root.contentSpacing : 0)
+      + root.listContentHeight + root.contentSpacing
+      + footerBlock.height
+      + card.contentTopInset + card.contentBottomInset
+      + root.contentMargin * 2
+    return Math.min(root.cardMaxHeight, Math.max(Style.space(120), content))
+  }
 
   function sourceDir() {
     return (root.manifest && root.manifest.__sourceDir) || ""
@@ -254,6 +281,42 @@ Item {
 
   ListModel { id: displayModel }
 
+  // Footer key hint: a bordered keycap and its label.
+  component Keycap: Row {
+    property string keys: ""
+    property string label: ""
+    spacing: Style.space(5)
+
+    Rectangle {
+      anchors.verticalCenter: parent.verticalCenter
+      width: capText.implicitWidth + Style.space(10)
+      height: capText.implicitHeight + Style.space(4)
+      radius: Style.space(3)
+      color: "transparent"
+      border.width: Math.max(1, Style.space(1))
+      border.color: root.foreground
+      opacity: 0.4
+
+      Text {
+        id: capText
+        anchors.centerIn: parent
+        text: parent.parent.keys
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+
+    Text {
+      anchors.verticalCenter: parent.verticalCenter
+      text: parent.label
+      color: root.foreground
+      opacity: 0.55
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+  }
+
   PointerMoveGate {
     id: pointerGate
     referenceItem: card
@@ -360,6 +423,7 @@ Item {
       id: card
       width: root.cardWidth
       height: root.cardHeight
+      Behavior on height { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
       radius: root.cornerRadius
       anchors.centerIn: parent
       color: root.background
@@ -415,18 +479,27 @@ Item {
         anchors.leftMargin: card.contentLeftInset
         spacing: root.contentSpacing
 
-        Rectangle {
+        Row {
+          id: queryLine
           width: parent.width
-          height: root.headerHeight
-          radius: root.cornerRadius
-          color: "transparent"
+          height: Math.max(Style.space(30), Style.font.heading + Style.spacing.controlPaddingY * 2)
+          spacing: Style.space(8)
 
           Text {
-            anchors.left: parent.left
-            anchors.right: hint.left
-            anchors.rightMargin: Style.spacing.md
             anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || "Filter ports…"
+            text: "❯"
+            color: Color.accent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading
+            font.bold: true
+          }
+
+          Text {
+            id: queryText
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, parent.width - Style.space(40))
+            text: root.filterText
+            visible: root.filterText !== ""
             // Qt's AutoText parses tag-shaped input as rich text; every
             // dynamic string here is user- or process-controlled, so pin
             // plain text. (Defence in depth: comm is 15 bytes and paths
@@ -434,43 +507,79 @@ Item {
             // this does not cover bidi/zero-width spoofing.)
             textFormat: Text.PlainText
             color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading
+            elide: Text.ElideLeft
+          }
+
+          Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.max(2, Style.space(2))
+            height: Style.font.heading
+            color: Color.accent
+            SequentialAnimation on opacity {
+              loops: Animation.Infinite
+              NumberAnimation { from: 1; to: 1; duration: 560 }
+              NumberAnimation { from: 0; to: 0; duration: 360 }
+            }
+          }
+
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.filterText === ""
+            text: "type a port to check, or filter"
+            color: root.foreground
+            opacity: 0.4
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
             elide: Text.ElideRight
           }
-
-          Text {
-            id: hint
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            text: "enter open · ctrl+k kill · ctrl+r refresh · esc close"
-            color: root.foreground
-            opacity: 0.45
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
         }
 
-        // The answer slot: "N is free", the next-free suggestion, and (in
-        // later phases) kill outcomes and refusal explanations.
-        Text {
-          id: banner
-          visible: root.bannerText !== ""
+        // The answer zone — the hero. Free/freed in accent, refusals and
+        // survivors in urgent, "taken" neutral.
+        Column {
+          id: bannerBlock
+          visible: root.banner !== null
           width: parent.width
-          text: root.bannerText
-          textFormat: Text.PlainText
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          elide: Text.ElideRight
+          spacing: Style.space(4)
+          topPadding: Style.space(8)
+          bottomPadding: Style.space(8)
+
+          Text {
+            width: parent.width
+            text: root.banner ? root.banner.headline : ""
+            textFormat: Text.PlainText
+            color: root.banner === null ? root.foreground
+                 : root.banner.tone === "good" ? Color.accent
+                 : root.banner.tone === "warn" ? Color.urgent
+                 : root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.display
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+          }
+
+          Text {
+            width: parent.width
+            visible: root.banner !== null && root.banner.detail !== ""
+            text: root.banner && root.banner.detail ? root.banner.detail : ""
+            textFormat: Text.PlainText
+            color: root.foreground
+            opacity: 0.6
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            horizontalAlignment: Text.AlignHCenter
+            elide: Text.ElideRight
+          }
         }
 
         Item {
           width: parent.width
-          height: parent.height - root.headerHeight - root.contentSpacing
-            - (banner.visible ? banner.height + root.contentSpacing : 0)
+          height: parent.height - queryLine.height - root.contentSpacing
+            - (bannerBlock.visible ? bannerBlock.height + root.contentSpacing : 0)
+            - footerBlock.height - root.contentSpacing
 
           ListView {
             id: resultList
@@ -501,10 +610,13 @@ Item {
               readonly property string scopeLabel: scope === "local" ? "localhost"
                                                  : scope === "any" ? "all interfaces"
                                                  : address
-              // Empty segments collapse so no separator dangles.
+              readonly property bool exposed: scope !== "local"
+              // Empty segments collapse so no separator dangles. Project
+              // leads — it is the name a person recognises.
               readonly property string contextLine: {
-                var parts = [rowItem.scopeLabel]
+                var parts = []
                 if (rowItem.project) parts.push(rowItem.project)
+                parts.push(rowItem.scopeLabel)
                 if (rowItem.pid !== "?") parts.push("pid " + rowItem.pid)
                 if (rowItem.process === "docker-proxy") parts.push("container — docker stop frees this")
                 return parts.join(" · ")
@@ -528,6 +640,17 @@ Item {
                   width: parent.width
                   spacing: Style.spacing.md
 
+                  // Exposure at a glance: urgent when reachable beyond
+                  // loopback, dim when localhost-only.
+                  Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Style.space(7)
+                    height: Style.space(7)
+                    radius: width / 2
+                    color: rowItem.exposed ? Color.urgent : root.foreground
+                    opacity: rowItem.exposed ? 0.9 : 0.3
+                  }
+
                   Text {
                     id: portText
                     text: rowItem.port
@@ -539,7 +662,7 @@ Item {
                   }
 
                   Text {
-                    width: parent.width - portText.width - Style.spacing.md
+                    width: parent.width - Style.space(7) - portText.width - Style.spacing.md * 2
                     text: rowItem.process
                     textFormat: Text.PlainText
                     color: rowItem.hasCursor ? root.selectedText : root.foreground
@@ -586,7 +709,7 @@ Item {
             spacing: Style.space(8)
             // The banner already answers a port query; a "No ports match"
             // block under a "3000 is free" line would muddy the answer.
-            visible: displayModel.count === 0 && root.bannerText === ""
+            visible: displayModel.count === 0 && root.banner === null
 
             Text {
               text: "󰛳"
@@ -611,6 +734,29 @@ Item {
               horizontalAlignment: Text.AlignHCenter
               width: parent.width
             }
+          }
+        }
+
+        Column {
+          id: footerBlock
+          width: parent.width
+          spacing: root.contentSpacing
+
+          Rectangle {
+            width: parent.width
+            height: Math.max(1, Style.space(1))
+            color: root.border
+            opacity: 0.35
+          }
+
+          Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: Style.space(14)
+
+            Keycap { keys: "↵"; label: "open" }
+            Keycap { keys: "^k"; label: "kill" }
+            Keycap { keys: "^r"; label: "refresh" }
+            Keycap { keys: "esc"; label: "close" }
           }
         }
       }
