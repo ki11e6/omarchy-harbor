@@ -47,11 +47,16 @@ Read in this session (2026-08-30). Line references are to the current tree.
 Reasoned from source but **not executed** in this session. Confirm each before
 relying on it:
 
-- **A1.** `list-ports.sh` uses `set -o pipefail` on a pipeline ending in `jq`.
-  A missing or failing `ss` is expected to still yield exit 0, because `jq`
-  succeeds on empty input. If true, exit-code checking alone cannot detect probe
-  failure and Phase 1's explicit rc capture is mandatory rather than belt-and-braces.
-  Verify: `PATH=/nonexistent bash list-ports.sh; echo $?`
+- **A1.** ~~`list-ports.sh` is expected to exit 0 with `ss` missing, because
+  `jq` succeeds on empty input.~~ **Settled 2026-08-30, prediction wrong in
+  mechanism, right in conclusion:** with `ss` missing and jq present, the old
+  script exited **127** — `set -o pipefail` did propagate — but stdout still
+  carried `[]`, and `Harbor.qml` had no `onExited` handler at all, so the
+  overlay parsed `[]` and rendered "Nothing is listening" regardless. The false
+  "free" was real, reached via an *ignored* exit code rather than a *masked*
+  one. Phase 1's wrapper (`{ok, ports}`) plus the new `onExited` covers both
+  routes. (Test note: invoke as `PATH=… /usr/bin/bash list-ports.sh` — a plain
+  `PATH=… bash` prevents the outer shell from finding bash itself.)
 - **A2.** Quickshell's `Process` exposes `onExited(exitCode)` on the version
   shipped here (0.3.0). Both surveyed plugins use it; confirm against
   `/usr/share/omarchy/shell` before depending on it.
@@ -183,11 +188,13 @@ otherwise                → "Nothing is listening on localhost"
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `bash -n list-ports.sh`
-- [ ] `bash list-ports.sh | jq -e '.ok == true and (.ports | type == "array")'`
-- [ ] `PATH=/nonexistent bash list-ports.sh | jq -e '.ok == false and (.ports | length) == 0'`
-      (settles A1)
-- [ ] `omarchy plugin validate "$PWD"` → exit 0
+- [x] `bash -n list-ports.sh`
+- [x] `bash list-ports.sh | jq -e '.ok == true and (.ports | type == "array")'`
+- [x] `PATH=/nonexistent /usr/bin/bash list-ports.sh | jq -e '.ok == false and (.ports | length) == 0'`
+      (settles A1 — see the corrected A1 entry above)
+- [x] `omarchy plugin validate "$PWD"` → exit 0
+- [x] (added) `.ports` byte-identical to the old script's array on the live
+      machine — the wrapper changed the envelope, not the rows
 
 #### Manual Verification
 - [ ] With `ss` unreachable, the overlay shows the iproute2 message — **not**

@@ -16,6 +16,10 @@ Item {
   property int selectedIndex: 0
   property bool cursorActive: false
   property var ports: []
+  // "unknown" until a probe completes; nothing may claim a port is free
+  // outside "ok" — a failed probe must never render as an empty (all-free)
+  // machine.
+  property string probeState: "unknown"   // "unknown" | "ok" | "failed"
   // Set by ctrl+k; a second ctrl+k on the same still-alive PID escalates to SIGKILL.
   property string lastKilledPid: ""
 
@@ -77,19 +81,24 @@ Item {
   }
 
   function refresh() {
+    root.probeState = "unknown"
     listProc.running = false
     listProc.running = true
+    probeWatchdog.restart()
   }
 
   function loadPorts(raw) {
-    var parsed = []
-    try { parsed = JSON.parse(raw || "[]") } catch (e) { parsed = [] }
-    root.ports = parsed
+    probeWatchdog.stop()
+    var parsed = null
+    try { parsed = JSON.parse(raw || "") } catch (e) { parsed = null }
+    var ok = parsed !== null && parsed.ok === true && Array.isArray(parsed.ports)
+    root.probeState = ok ? "ok" : "failed"
+    root.ports = ok ? parsed.ports : []
     root.disarmPointer()
     if (root.lastKilledPid) {
       var alive = false
-      for (var i = 0; i < parsed.length; i++)
-        if (parsed[i].pid === root.lastKilledPid) alive = true
+      for (var i = 0; i < root.ports.length; i++)
+        if (root.ports[i].pid === root.lastKilledPid) alive = true
       if (!alive) root.lastKilledPid = ""
     }
     root.rebuildDisplay()
@@ -174,6 +183,26 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.loadPorts(text)
+    }
+    // The script itself always exits 0; a non-zero code means bash never ran
+    // it, so no trustworthy payload exists.
+    onExited: function(exitCode) {
+      if (exitCode !== 0) root.probeState = "failed"
+    }
+  }
+
+  // A probe that hangs (e.g. a cwd readlink stuck on a dead mount) must land
+  // in "failed", not leave the overlay waiting forever. Single-shot by
+  // design: a stuck D-state child may survive running=false, and re-arming
+  // would loop.
+  Timer {
+    id: probeWatchdog
+    interval: 4000
+    onTriggered: {
+      listProc.running = false
+      root.probeState = "failed"
+      root.ports = []
+      root.rebuildDisplay()
     }
   }
 
@@ -409,7 +438,10 @@ Item {
             }
 
             Text {
-              text: root.filterText ? "No ports match “" + root.filterText + "”" : "Nothing is listening on localhost"
+              text: root.probeState === "failed" ? "Couldn't read the socket table. Is iproute2 installed?"
+                  : root.probeState === "unknown" ? "Reading listening sockets…"
+                  : root.filterText ? "No ports match “" + root.filterText + "”"
+                  : "Nothing is listening on localhost"
               color: root.foreground
               opacity: 0.7
               font.family: root.fontFamily
