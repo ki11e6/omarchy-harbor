@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "answers.js" as Answers
 
 Item {
   id: root
@@ -20,8 +21,27 @@ Item {
   // outside "ok" — a failed probe must never render as an empty (all-free)
   // machine.
   property string probeState: "unknown"   // "unknown" | "ok" | "failed"
+  // Below this, a port can be free and still refuse an unprivileged bind.
+  // Supplied by the probe (it reads the sysctl); 1024 is the fallback.
+  property int unprivilegedPortStart: 1024
   // Set by ctrl+k; a second ctrl+k on the same still-alive PID escalates to SIGKILL.
   property string lastKilledPid: ""
+
+  // The filter doubles as a question when it is exactly a port number.
+  readonly property int queriedPort: Answers.queriedPortOf(root.filterText)
+
+  // The answer line. Empty outside probeState "ok" — never claim a port is
+  // free on a failed or pending probe; a suggestion is a free-claim too.
+  readonly property string bannerText: {
+    if (root.probeState !== "ok" || root.queriedPort === 0) return ""
+    if (!Answers.portInUse(root.ports, root.queriedPort)) {
+      var caveat = root.queriedPort < root.unprivilegedPortStart
+        ? " · needs root or CAP_NET_BIND_SERVICE" : ""
+      return root.queriedPort + " is free" + caveat
+    }
+    var next = Answers.nextFreePort(root.ports, root.queriedPort, root.unprivilegedPortStart)
+    return next > 0 ? next + " is free" : ""
+  }
 
   // Shares the [menu] surface tokens — themes that style the menu also style Harbor.
   property color background: Color.menu.background
@@ -95,6 +115,8 @@ Item {
     var ok = parsed !== null && parsed.ok === true && Array.isArray(parsed.ports)
     root.probeState = ok ? "ok" : "failed"
     root.ports = ok ? parsed.ports : []
+    var floor = ok ? parseInt(parsed.unprivilegedPortStart, 10) : NaN
+    root.unprivilegedPortStart = isFinite(floor) && floor >= 0 ? floor : 1024
     root.disarmPointer()
     if (root.lastKilledPid) {
       var alive = false
@@ -338,9 +360,24 @@ Item {
           }
         }
 
+        // The answer slot: "N is free", the next-free suggestion, and (in
+        // later phases) kill outcomes and refusal explanations.
+        Text {
+          id: banner
+          visible: root.bannerText !== ""
+          width: parent.width
+          text: root.bannerText
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          elide: Text.ElideRight
+        }
+
         Item {
           width: parent.width
           height: parent.height - root.headerHeight - root.contentSpacing
+            - (banner.visible ? banner.height + root.contentSpacing : 0)
 
           ListView {
             id: resultList
@@ -453,7 +490,9 @@ Item {
             width: parent.width
             anchors.centerIn: parent
             spacing: Style.space(8)
-            visible: displayModel.count === 0
+            // The banner already answers a port query; a "No ports match"
+            // block under a "3000 is free" line would muddy the answer.
+            visible: displayModel.count === 0 && root.bannerText === ""
 
             Text {
               text: "󰛳"

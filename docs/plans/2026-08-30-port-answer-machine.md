@@ -449,26 +449,39 @@ free-claim and inherits the same rule.
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `nextFreePort` unit-checked against a synthetic `ports` array: contiguous
+
+All exercised via `answers.js` — the three pure functions live there (Qt-free,
+`module.exports`-guarded like the surveyed repos) precisely so node can drive
+these checks; QML imports the same file.
+
+- [x] `nextFreePort` unit-checked against a synthetic `ports` array: contiguous
       run 3000-3005 used → returns 3006
-- [ ] Substring-collision check: `ports` containing only `13000`, query `3000` →
+- [x] Substring-collision check: `ports` containing only `13000`, query `3000` →
       `portInUse(3000)` is false and the free banner shows
-- [ ] `nextFreePort(80)` returns a port ≥ the unprivileged floor, never 81
-- [ ] Threshold fallback: with `/proc/sys/net/ipv4/ip_unprivileged_port_start`
+- [x] `nextFreePort(80)` returns a port ≥ the unprivileged floor, never 81
+- [x] Threshold fallback: with `/proc/sys/net/ipv4/ip_unprivileged_port_start`
       unreadable, the floor is 1024 and nothing errors
-- [ ] Leading-zero rejection: filter `00080` yields `queriedPort == 0`, so no
+- [x] Leading-zero rejection: filter `00080` yields `queriedPort == 0`, so no
       banner and no suggestion
+- [x] (added) Scan cap: 201 consecutive used ports → returns 0, no suggestion
 
 #### Manual Verification
-- [ ] Nothing on 8080, type `8080` → **"8080 is free"**
-- [ ] Nothing on 80, type `80` → "80 is free" **with** the privilege caveat
-- [ ] Start a server on 3000, type `3000` → the row, plus "3001 is free"
-- [ ] Occupy 3000 and 3001, type `3000` → suggestion reads 3002
-- [ ] With `ss` unreachable, type `8080` → **no free banner and no suggestion**,
+
+All six verified live 2026-08-30: real servers, real keystrokes (`wtype` into
+the summoned overlay), screenshots inspected.
+
+- [x] Nothing on 8080, type `8080` → **"8080 is free"**
+- [x] Nothing on 80, type `80` → "80 is free" **with** the privilege caveat
+- [x] Start a server on 3000, type `3000` → the row, plus "3001 is free"
+- [x] Occupy 3000 and 3001, type `3000` → suggestion reads 3002
+- [x] With `ss` unreachable, type `8080` → **no free banner and no suggestion**,
       only the probe-failure message. This is the single most important check in
-      this plan
-- [ ] Type `300` (a prefix, not a port a user means) → substring list behaves as
+      this plan. (Test-harness note: sabotaging the installed copy triggers the
+      shell's plugin hot-reload — wait ~2 s before summoning or the toggle races
+      the reload and the overlay never maps.)
+- [x] Type `300` (a prefix, not a port a user means) → substring list behaves as
       before; no free claim is made about 300 unless 300 itself is unused
+      (it was unused, and correctly got the free-with-caveat banner)
 
 ---
 
