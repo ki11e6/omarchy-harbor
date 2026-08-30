@@ -36,7 +36,8 @@ Item {
   property int contentMargin: Style.spacing.panelPadding
   property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
   property int contentSpacing: Style.spacing.md
-  property int rowHeight: Math.max(Style.space(40), Style.font.body + Style.spacing.md * 2)
+  // Two text lines per row: identity above, context below.
+  property int rowHeight: Math.max(Style.space(52), Style.font.body + Style.font.caption + Style.spacing.md * 2 + Style.space(2))
   property int cardWidth: Math.min(Style.space(520), panel.width - Style.gapsOut * 2)
   property int cardHeight: Math.min(Style.space(420), panel.height - Style.gapsOut * 2)
 
@@ -106,7 +107,11 @@ Item {
 
   function matches(row, needle) {
     if (!needle) return true
-    var hay = (row.port + " " + row.process + " " + row.pid + " " + row.cwd).toLowerCase()
+    // Full cwd stays in the haystack even though the row shows only its
+    // basename — directory-name filtering must keep working. uid/starttime
+    // are deliberately excluded: all-digit strings that would make numeric
+    // port queries match every row the user owns.
+    var hay = (row.port + " " + row.process + " " + row.pid + " " + row.cwd + " " + row.scope + " " + row.address).toLowerCase()
     return hay.indexOf(needle) !== -1
   }
 
@@ -116,7 +121,12 @@ Item {
     for (var i = 0; i < root.ports.length; i++) {
       var row = root.ports[i]
       if (root.matches(row, needle))
-        displayModel.append({ port: row.port, process: row.process, pid: row.pid, cwd: row.cwd })
+        displayModel.append({
+          port: String(row.port || ""), process: String(row.process || ""),
+          pid: String(row.pid || ""), cwd: String(row.cwd || ""),
+          scope: String(row.scope || ""), address: String(row.address || ""),
+          uid: String(row.uid || ""), starttime: String(row.starttime || "")
+        })
     }
     if (displayModel.count === 0) root.selectedIndex = 0
     else if (root.selectedIndex >= displayModel.count) root.selectedIndex = displayModel.count - 1
@@ -346,59 +356,77 @@ Item {
               required property string process
               required property string pid
               required property string cwd
+              required property string scope
+              required property string address
+              required property string uid
+              required property string starttime
 
               readonly property bool hasCursor: root.cursorActive && index === root.selectedIndex
+
+              // "localhost" and "all interfaces" say it best; for a single
+              // interface the literal address is the informative thing.
+              readonly property string scopeLabel: scope === "local" ? "localhost"
+                                                 : scope === "any" ? "all interfaces"
+                                                 : address
+              // Project slot: cwd basename until the marker walk (Phase 6)
+              // replaces it with the checkout name.
+              readonly property string project: {
+                if (!cwd || cwd === "-" || cwd === "/") return ""
+                var parts = cwd.split("/")
+                return parts[parts.length - 1]
+              }
+              // Empty segments collapse so no separator dangles.
+              readonly property string contextLine: {
+                var parts = [rowItem.scopeLabel]
+                if (rowItem.project) parts.push(rowItem.project)
+                if (rowItem.pid !== "?") parts.push("pid " + rowItem.pid)
+                return parts.join(" · ")
+              }
 
               width: resultList.width
               height: root.rowHeight
               radius: root.cornerRadius
               color: rowItem.hasCursor ? root.selectedBackground : "transparent"
 
-              Row {
-                anchors.fill: parent
+              Column {
+                anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.leftMargin: Style.spacing.md
                 anchors.rightMargin: Style.spacing.md
-                spacing: Style.spacing.md
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(2)
 
-                Text {
-                  width: Style.space(64)
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: rowItem.port
-                  color: rowItem.hasCursor ? root.selectedText : root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  font.bold: true
+                Row {
+                  width: parent.width
+                  spacing: Style.spacing.md
+
+                  Text {
+                    id: portText
+                    text: rowItem.port
+                    color: rowItem.hasCursor ? root.selectedText : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                  }
+
+                  Text {
+                    width: parent.width - portText.width - Style.spacing.md
+                    text: rowItem.process
+                    color: rowItem.hasCursor ? root.selectedText : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    elide: Text.ElideRight
+                  }
                 }
 
                 Text {
-                  width: Style.space(110)
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: rowItem.process
+                  width: parent.width
+                  text: rowItem.contextLine
                   color: rowItem.hasCursor ? root.selectedText : root.foreground
+                  opacity: 0.65
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
+                  font.pixelSize: Style.font.caption
                   elide: Text.ElideRight
-                }
-
-                Text {
-                  width: Style.space(56)
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: rowItem.pid
-                  color: rowItem.hasCursor ? root.selectedText : root.foreground
-                  opacity: 0.7
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                }
-
-                Text {
-                  width: parent.width - Style.space(64) - Style.space(110) - Style.space(56) - Style.spacing.md * 3
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: rowItem.cwd
-                  color: rowItem.hasCursor ? root.selectedText : root.foreground
-                  opacity: 0.6
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  elide: Text.ElideMiddle
                 }
               }
 

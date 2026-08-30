@@ -273,9 +273,12 @@ Scope and address then always agree by construction.
 
 #### 4. `Harbor.qml` — carry the new fields
 
-Add `scope`, `address`, `uid`, `starttime` to `displayModel.append` (`:115`) and
-to the `matches` haystack (`:105`). Keep the full `cwd` in the haystack even once
-it stops being displayed, so directory-name filtering keeps working.
+Add `scope`, `address`, `uid`, `starttime` to `displayModel.append` (`:115`).
+The `matches` haystack (`:105`) gets `scope` and `address` only — `uid` and
+`starttime` are all-digit strings, and putting them in the haystack would make a
+numeric port query match every row the user owns (uid 1000 vs port 1000). Keep
+the full `cwd` in the haystack even once it stops being displayed, so
+directory-name filtering keeps working.
 
 #### 5. `Harbor.qml` — redesign the row, once
 
@@ -311,16 +314,18 @@ not widen the card to compensate; 520 is what the layout is tuned for.
 ### Success Criteria
 
 #### Automated Verification
-- [ ] All eight fields present:
+- [x] All eight fields present:
       `bash list-ports.sh | jq -e '.ports | all(has("port") and has("scope") and has("address") and has("process") and has("pid") and has("uid") and has("starttime") and has("cwd"))'`
-- [ ] Scope-union fixture: two rows for one port, `127.0.0.1` and `0.0.0.0`, in
+- [x] Scope-union fixture: two rows for one port, `127.0.0.1` and `0.0.0.0`, in
       **both input orders** → collapsed row reports `any` each time
-- [ ] Scope/address coherence: in that same fixture the emitted `address` is
+      (via the script's `--dedup` mode, added so fixtures can drive the pass directly)
+- [x] Scope/address coherence: in that same fixture the emitted `address` is
       `0.0.0.0`, not `127.0.0.1` — the scope winner supplies the address
-- [ ] Arity fixture: a record with a missing field is dropped, not misparsed
-- [ ] Sanitization fixture: a cwd containing an embedded newline and a tab
+- [x] Arity fixture: a record with a missing field is dropped, not misparsed
+- [x] Sanitization fixture: a cwd containing an embedded newline and a tab
       produces exactly one well-formed record and forges no additional row
-- [ ] Named-owner-wins dedup fixture from the 2026-08-20 plan (Phase 2) still passes
+      (run live: a real listener in `/tmp/harbor bad<TAB>t<NL>n` → one row, spaces)
+- [x] Named-owner-wins dedup fixture from the 2026-08-20 plan (Phase 2) still passes
 
 **Retired fixture.** That same 2026-08-20 Phase 2 criterion asserts
 `jq -e 'type == "array" and (all(.[]; has("port") …))'` against the script's
@@ -330,15 +335,17 @@ eight-field check above, not broken. Noted here so a red result from re-running
 the old fixture is not mistaken for a regression.
 
 #### Manual Verification
-- [ ] Bind a server to a specific LAN address (`python -m http.server --bind
+- [x] Bind a server to a specific LAN address (`python -m http.server --bind
       192.168.x.x 8123`) → the row appears, scope reads as that address.
-      Before this phase it was invisible.
-- [ ] `starttime` for a known PID matches
+      Before this phase it was invisible. (Verified live on 192.168.1.36:8378;
+      dnsmasq on the Docker bridge 172.17.0.1:53 also surfaced — a previously
+      hidden real listener on this machine.)
+- [x] `starttime` for a known PID matches
       `sed 's/.*) //' /proc/<pid>/stat | awk '{print $20}'` — note this strips
       through the last `)` exactly as the implementation must, because
       `awk '{print $22}'` on the raw line is wrong for any process whose comm
       contains a space
-- [ ] Root-owned ports still show `?` for process and pid
+- [x] Root-owned ports still show `?` for process and pid
 - [ ] Two-line rows render without clipping at the default card width, with the
       project segment absent (Phase 6 has not landed) and no dangling separator
 - [ ] A long cwd/owner name elides rather than pushing `pid N` off the row
