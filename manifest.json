@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "ki11e6",
   "license": "MIT",
-  "description": "Summonable overlay of listening localhost ports with owning process and cwd. Enter opens/copies, ctrl+y copies, ctrl+k kills.",
+  "description": "Summonable overlay of listening localhost ports with owning process and cwd. Enter opens, ctrl+y copies, ctrl+k kills.",
   "kinds": ["overlay", "bar-widget"],
   "entryPoints": {
     "overlay": "Harbor.qml",

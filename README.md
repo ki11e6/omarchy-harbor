@@ -3,6 +3,9 @@
 A summonable Omarchy shell overlay showing every listening localhost TCP port, with the owning process, PID, and working directory.
 Answers "which dev server is on 5173?" without leaving the keyboard.
 
+See [docs/VISION.md](docs/VISION.md) for what Harbor is for and what it
+deliberately does not do.
+
 ![kind: overlay](https://img.shields.io/badge/kind-overlay-blue)
 
 ![Harbor overlay](preview.png)
@@ -12,7 +15,7 @@ Answers "which dev server is on 5173?" without leaving the keyboard.
 | Key | Action |
 |-----|--------|
 | type | Filter the list (e.g. `3000`, `node`, or a directory name) |
-| `enter` / click | Open `http://localhost:<port>` in the browser — or copy `localhost:<port>` for known non-HTTP ports (ssh, smtp, dns, rpcbind, cups, mysql, postgres, redis, mongo) |
+| `enter` / click | Open `http://localhost:<port>` in the browser |
 | `ctrl+y` | Copy `localhost:<port>` to the clipboard |
 | `ctrl+k` | Kill the owning process (SIGTERM); press again on a survivor to escalate to SIGKILL |
 | `ctrl+r` | Refresh the list |

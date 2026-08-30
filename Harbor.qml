@@ -19,11 +19,6 @@ Item {
   // Set by ctrl+k; a second ctrl+k on the same still-alive PID escalates to SIGKILL.
   property string lastKilledPid: ""
 
-  // Ports that don't speak HTTP: Enter copies the address instead of opening
-  // a dead browser tab.
-  readonly property var nonHttpPorts: ({ "22": 1, "25": 1, "53": 1, "111": 1, "631": 1,
-                                         "3306": 1, "5432": 1, "6379": 1, "27017": 1 })
-
   // Shares the [menu] surface tokens — themes that style the menu also style Harbor.
   property color background: Color.menu.background
   property color foreground: Color.menu.text
@@ -145,10 +140,7 @@ Item {
     if (root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
     root.dismiss()
-    if (root.nonHttpPorts[row.port])
-      Quickshell.execDetached(["wl-copy", "localhost:" + row.port])
-    else
-      Quickshell.execDetached(["xdg-open", "http://localhost:" + row.port])
+    Quickshell.execDetached(["xdg-open", "http://localhost:" + row.port])
   }
 
   function copySelected() {
@@ -299,7 +291,7 @@ Item {
             id: hint
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: "enter open · ctrl+y copy · ctrl+k kill · ctrl+r refresh · esc close"
+            text: "enter open · ctrl+k kill · ctrl+r refresh · esc close"
             color: root.foreground
             opacity: 0.45
             font.family: root.fontFamily
