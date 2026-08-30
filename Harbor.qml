@@ -232,18 +232,34 @@ Item {
     root.rebuildDisplay()
   }
 
+  // An iface-bound listener has nothing on loopback — localhost cannot reach
+  // it, so open/copy must target the address it is actually bound to. IPv6
+  // literals get brackets so the result works as a URL.
+  function rowHost(row) {
+    if (row.scope !== "iface" || !row.address) return "localhost"
+    return row.address.indexOf(":") >= 0 ? "[" + row.address + "]" : row.address
+  }
+
+  // Exec BEFORE dismiss in both actions: dismiss() unloads this plugin (no
+  // keepLoaded), and a detached spawn queued after the unload no longer
+  // survives it on current shells — the 2026-08-20 verification of the
+  // opposite order does not hold anymore.
   function openSelected() {
     if (root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
+    Quickshell.execDetached(["xdg-open", "http://" + root.rowHost(row) + ":" + row.port])
     root.dismiss()
-    Quickshell.execDetached(["xdg-open", "http://localhost:" + row.port])
   }
 
   function copySelected() {
     if (root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
+    // Argv-style detached wl-copy dies silently under execDetached here; the
+    // shell's own plugins pipe through a shell instead (network Panel.qml:450,
+    // tailscale Service.qml:109). Follow the proven pattern.
+    var text = root.rowHost(row) + ":" + row.port
+    Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
     root.dismiss()
-    Quickshell.execDetached(["wl-copy", "localhost:" + row.port])
   }
 
   function killSelected() {
@@ -272,6 +288,10 @@ Item {
     root.killPort = row.port
     root.killState = "terminating"
     root.verifyAttempt = 0
+    // A verification already in flight belongs to a previous row; its result
+    // must not be attributed to this one.
+    verifyTimer.stop()
+    checkProc.running = false
     // The helper re-checks pid+uid+starttime against live /proc before
     // signaling; everything travels as argv, never interpolated.
     killProc.command = ["bash", root.sourceDir() + "/kill-port.sh",
@@ -281,8 +301,11 @@ Item {
 
   ListModel { id: displayModel }
 
-  // Footer key hint: a bordered keycap and its label.
+  // Footer key hint: a bordered keycap and its label. Children reference the
+  // component root by id, not parent chains — wrapper insertion must not be
+  // able to silently rebind them.
   component Keycap: Row {
+    id: cap
     property string keys: ""
     property string label: ""
     spacing: Style.space(5)
@@ -300,7 +323,7 @@ Item {
       Text {
         id: capText
         anchors.centerIn: parent
-        text: parent.parent.keys
+        text: cap.keys
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -309,7 +332,7 @@ Item {
 
     Text {
       anchors.verticalCenter: parent.verticalCenter
-      text: parent.label
+      text: cap.label
       color: root.foreground
       opacity: 0.55
       font.family: root.fontFamily
@@ -380,14 +403,23 @@ Item {
   Process {
     id: checkProc
     command: ["sh", "-c", "ss -Htln \"sport = :$1\"", "harbor-verify", root.killPort]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.applyVerify(text)
+    stdout: StdioCollector { id: checkOut; waitForEnd: true }
+    // Exit code and stdout together: a failed ss and a free port both print
+    // nothing, and "freed" is a free-claim — it needs evidence, not silence.
+    onExited: function(exitCode) {
+      root.applyVerify(exitCode, String(checkOut.text || ""))
     }
   }
 
-  function applyVerify(out) {
+  function applyVerify(exitCode, out) {
     if (root.killState !== "terminating") return
+    if (exitCode !== 0) {
+      // ss itself failed — evidence for neither outcome. "survived" is the
+      // safe claim: it never asserts a port is free without proof.
+      root.killState = "survived"
+      root.refresh()
+      return
+    }
     if (String(out || "").trim() === "") {
       root.killState = "freed"
       root.refresh()
@@ -456,6 +488,12 @@ Item {
             root.copySelected()
             event.accepted = true
           } else if (event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) {
+            // A refusal must not outlive the remedy it prescribes ("ctrl+r to
+            // refresh"). Outcome banners (freed/survived) deliberately survive
+            // a manual refresh — they are still true. Not cleared inside
+            // refresh() itself: applyVerify sets the outcome and then
+            // refreshes, and would wipe its own banner.
+            root.refusalText = ""
             root.refresh()
             event.accepted = true
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {

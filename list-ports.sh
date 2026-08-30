@@ -99,6 +99,11 @@ ports_json=$(
       cwd="-" uid="?" start="?"
       if [[ -n $pid ]]; then
         cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || echo "-")
+        # The kernel appends " (deleted)" when the directory is gone. Strip it
+        # before the marker walk: the dead leaf can't match, but its live
+        # ancestors still can, so an orphaned server in a rebuilt checkout
+        # keeps its project name instead of showing "gone (deleted)".
+        cwd="${cwd% (deleted)}"
         uid=$(awk '/^Uid:/{print $2; exit}' "/proc/$pid/status" 2>/dev/null)
         [[ $uid =~ ^[0-9]+$ ]] || uid="?"
         # starttime is stat field 22; strip through the last ")" first so a

@@ -51,16 +51,17 @@ PATH=/nonexistent /usr/bin/bash list-ports.sh \
   || fail "failure path must report ok:false, never an empty (all-free) list"
 
 # ------------------------------------------------- live probe: walk + forgery
-srv1="" srv2="" srv3=""
+srv1="" srv2="" srv3="" srv4=""
 cleanup() {
   [[ -n $srv1 ]] && kill "$srv1" 2>/dev/null
   [[ -n $srv2 ]] && kill "$srv2" 2>/dev/null
   [[ -n $srv3 ]] && kill "$srv3" 2>/dev/null
+  [[ -n $srv4 ]] && kill "$srv4" 2>/dev/null
   rm -rf /tmp/harbor-fx
 }
 trap cleanup EXIT
 
-for p in 18391 18392 18393; do
+for p in 18391 18392 18393 18394; do
   [[ -z $(ss -Htln "sport = :$p") ]] || fail "fixture port $p is already in use"
 done
 
@@ -75,7 +76,12 @@ deep=/tmp/harbor-fx/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/leaf
 mkdir -p "$deep"
 (cd "$deep" && exec python3 -m http.server 18393) >/dev/null 2>&1 &
 srv3=$!
+mkdir -p /tmp/harbor-fx/del/.git /tmp/harbor-fx/del/gone
+(cd /tmp/harbor-fx/del/gone && exec python3 -m http.server 18394) >/dev/null 2>&1 &
+srv4=$!
 sleep 1
+# Delete the cwd out from under srv4: the kernel marks it " (deleted)".
+rmdir /tmp/harbor-fx/del/gone
 
 out=$(bash list-ports.sh)
 [[ $(jq -r '.ports[] | select(.port=="18391") | .project' <<<"$out") == "app" ]] \
@@ -86,6 +92,10 @@ jq -e '.ports[] | select(.port=="18392") | .cwd | test("[\\t\\n]") | not' <<<"$o
   || fail "tab/newline must be sanitized out of cwd"
 [[ $(jq -r '.ports[] | select(.port=="18393") | .project' <<<"$out") == "leaf" ]] \
   || fail "markerless deep path must fall back to the leaf basename (capped walk)"
+[[ $(jq -r '.ports[] | select(.port=="18394") | .project' <<<"$out") == "del" ]] \
+  || fail "a deleted cwd must resolve project from live ancestors, not show ' (deleted)'"
+jq -e '.ports[] | select(.port=="18394") | .cwd | contains("(deleted)") | not' <<<"$out" >/dev/null \
+  || fail "the kernel's ' (deleted)' suffix must be stripped from cwd"
 
 # ---------------------------------------------------------------- kill helper
 sleep 300 &

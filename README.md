@@ -31,9 +31,10 @@ another one**. Harbor makes both a single keystroke.
   "needs root" caveat.
 - **Next free port** — when 3000 is taken, Harbor says **"3001 is free"** so
   you can move instead of fight.
-- **Named by project** — rows read `3000 · node / my-app`, resolved by walking
-  from the server's working directory to the nearest `.git`/`package.json`.
-  Four `node` processes become four project names. No framework guessing.
+- **Named by project** — a row reads `3000 · node` with `my-app · localhost ·
+  pid 1234` beneath it, the project resolved by walking from the server's
+  working directory to the nearest `.git`/`package.json`. Four `node`
+  processes become four project names. No framework guessing.
 - **Verified kills** — `ctrl+k` sends SIGTERM, re-checks the socket, and
   reports **"3000 is now free"** or **"still listening — ctrl+k again to
   force"**. The signal is identity-checked (pid + uid + start time) so a
@@ -65,7 +66,9 @@ o.bind("SUPER + ALT + P", "Harbor", "omarchy-shell shell toggle io.github.ki11e6
 
 Keep the description `"Harbor"` — the bar icon's hover tooltip looks the
 binding up by that name and shows it (`Harbor — is this port free? SUPER+ALT+P`).
-Until a binding exists, the tooltip reminds you to set one.
+Until a binding exists, the tooltip reminds you to set one. The lookup runs
+once at bar load, so after adding or changing the binding, run
+`omarchy restart shell` for the tooltip to catch up.
 
 ## Keys
 
