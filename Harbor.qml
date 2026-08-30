@@ -32,6 +32,9 @@ Item {
   property string killState: ""
   property string killPort: ""
   property int verifyAttempt: 0
+  // Why the last ctrl+k did nothing. A silent no-op is the worst outcome in
+  // a tool used under time pressure.
+  property string refusalText: ""
 
   // The filter doubles as a question when it is exactly a port number.
   readonly property int queriedPort: Answers.queriedPortOf(root.filterText)
@@ -41,6 +44,7 @@ Item {
   // probe; a suggestion is a free-claim too. ("is now free" rests on the
   // port-scoped ss check, not on the probe, so it carries its own evidence.)
   readonly property string bannerText: {
+    if (root.refusalText) return root.refusalText
     if (root.killState === "freed") return root.killPort + " is now free"
     if (root.killState === "survived") return "still listening — ctrl+k again to force"
     if (root.probeState !== "ok" || root.queriedPort === 0) return ""
@@ -113,6 +117,7 @@ Item {
   function clearKillFeedback() {
     root.killState = ""
     root.killPort = ""
+    root.refusalText = ""
     root.verifyAttempt = 0
     verifyTimer.stop()
   }
@@ -216,8 +221,22 @@ Item {
   function killSelected() {
     if (root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    if (!/^[0-9]+$/.test(row.pid)) return
-    if (!/^[0-9]+$/.test(row.uid) || !/^[0-9]+$/.test(row.starttime)) return
+    root.refusalText = ""
+    // Killing docker-proxy is worse than refusing: dockerd either restarts
+    // it or the container keeps the port. Heuristic — misses rootless
+    // Docker/Podman — so nothing else branches on it.
+    if (row.process === "docker-proxy") {
+      root.refusalText = "container port — docker stop frees this"
+      return
+    }
+    if (!/^[0-9]+$/.test(row.pid)) {
+      root.refusalText = "owned by another user — needs sudo"
+      return
+    }
+    if (!/^[0-9]+$/.test(row.uid) || !/^[0-9]+$/.test(row.starttime)) {
+      root.refusalText = "process identity unreadable — ctrl+r to refresh"
+      return
+    }
     if (!/^[0-9]+$/.test(row.port)) return
     var key = row.pid + ":" + row.starttime
     var signal = (key === root.lastKilledKey) ? "KILL" : "TERM"
@@ -485,6 +504,7 @@ Item {
                 var parts = [rowItem.scopeLabel]
                 if (rowItem.project) parts.push(rowItem.project)
                 if (rowItem.pid !== "?") parts.push("pid " + rowItem.pid)
+                if (rowItem.process === "docker-proxy") parts.push("container — docker stop frees this")
                 return parts.join(" · ")
               }
 

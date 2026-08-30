@@ -618,13 +618,19 @@ responsibility for building the banner.
 ### Success Criteria
 
 #### Automated Verification
-- [ ] `grep -n 'docker-proxy' Harbor.qml` → exactly one comparison site
+- [x] `grep -n 'docker-proxy' Harbor.qml` → exactly **two** comparison sites
+      (the criterion originally said one, but this phase's own two requirements
+      — the row hint and the kill refusal — inherently need one each; corrected)
 
 #### Manual Verification
-- [ ] `ctrl+k` on a root-owned row (53, 631) → the sudo message. Currently silent
-- [ ] With a container publishing a port, its row shows the container hint and
-      `ctrl+k` refuses rather than killing `docker-proxy`
-- [ ] A normal user-owned row is unaffected by both branches
+- [x] `ctrl+k` on a root-owned row (631) → the sudo message. Was silent before
+      (verified live via wtype + screenshot)
+- [x] With a container publishing a port, its row shows the container hint and
+      `ctrl+k` refuses rather than killing `docker-proxy` (verified live with a
+      renamed python3 whose comm reads `docker-proxy` — no real container
+      needed; the process survived the refused kill)
+- [x] A normal user-owned row is unaffected by both branches (Phase 4's kill
+      scenarios re-ran green after this change landed)
 
 ---
 
