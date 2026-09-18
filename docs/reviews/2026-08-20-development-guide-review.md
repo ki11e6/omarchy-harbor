@@ -35,7 +35,7 @@ re-discovered later.
 | `moduleName` matches manifest id | `BarWidget.qml:6` = `io.github.ki11e6.harbor`; the registry registers under `String(manifest.id)` (`shell.qml:678`). |
 | Overlay lifecycle contract | `open(payloadJson)` / `close()` / `toggle()` / `opened` all present. `shell.qml:546` calls `open()` via `deliverIfLoaded`, `shell.qml:489` calls `close()` via `hide()`, `shell.qml:505` reads `opened`. |
 | `bar.run()` is real | `plugins/bar/Bar.qml:611`. Harbor's click path matches `plugins/menu/BarWidget.qml:21`. |
-| Injected properties | `shell` and `manifest` are set in the Loader's `onLoaded` (`shell.qml:630-631`), so `manifest.__sourceDir` is populated before `open()` runs. |
+| Injected properties | `shell` and `manifest` are set in the Loader's `onLoaded` (`shell.qml:630-631`). **Superseded 2026-09-18:** the host now passes third-party plugins a sanitized manifest with `__sourceDir` stripped (`shell.qml` `publicPluginManifest`), so Harbor resolves its own directory with `Qt.resolvedUrl(".")` instead. |
 | `list-ports.sh` works | `bash list-ports.sh` emits valid JSON, correctly sorted, with `?` owners for root-owned sockets. |
 | Dev loop uses documented commands | `omarchy plugin validate`, `omarchy-restart-shell`, `omarchy plugin enable` all exist; `rescanPlugins` IPC exists at `shell.qml:890`. |
 | Lint parity with built-ins | Harbor's qmllint warning categories are the same set the built-in overlay produces (`missing-property` / `unqualified` / `uncreatable-type`), all from the shell's own nested-`QtObject` token idiom. |

@@ -26,6 +26,12 @@ Item {
   // outside "ok" — a failed probe must never render as an empty (all-free)
   // machine.
   property string probeState: "unknown"   // "unknown" | "ok" | "failed"
+  // True when bash never ran the probe (bad path, missing script) — a
+  // different failure from the probe running and reporting ok:false.
+  property bool probeLaunchFailed: false
+  // Set by the watchdog before it kills a hung probe, so the exit that kill
+  // produces is not mistaken for a launch failure.
+  property bool probeTimedOut: false
   // Below this, a port can be free and still refuse an unprivileged bind.
   // Supplied by the probe (it reads the sysctl); 1024 is the fallback.
   property int unprivilegedPortStart: 1024
@@ -124,8 +130,10 @@ Item {
     return Math.min(root.cardMaxHeight, Math.max(Style.space(120), content))
   }
 
+  // Derived from this file's own URL, not the manifest: the host hands
+  // third-party plugins a sanitized manifest with __sourceDir stripped.
   function sourceDir() {
-    return (root.manifest && root.manifest.__sourceDir) || ""
+    return Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "").replace(/\/$/, "")
   }
 
   function open(payloadJson) {
@@ -178,6 +186,8 @@ Item {
 
   function refresh() {
     root.probeState = "unknown"
+    root.probeLaunchFailed = false
+    root.probeTimedOut = false
     listProc.running = false
     listProc.running = true
     probeWatchdog.restart()
@@ -377,7 +387,10 @@ Item {
     // The script itself always exits 0; a non-zero code means bash never ran
     // it, so no trustworthy payload exists.
     onExited: function(exitCode) {
-      if (exitCode !== 0) root.probeState = "failed"
+      if (exitCode !== 0) {
+        if (!root.probeTimedOut) root.probeLaunchFailed = true
+        root.probeState = "failed"
+      }
     }
   }
 
@@ -389,6 +402,7 @@ Item {
     id: probeWatchdog
     interval: 4000
     onTriggered: {
+      root.probeTimedOut = true
       listProc.running = false
       root.probeState = "failed"
       root.ports = []
@@ -793,7 +807,8 @@ Item {
             }
 
             Text {
-              text: root.probeState === "failed" ? "Couldn't read the socket table. Is iproute2 installed?"
+              text: root.probeState === "failed" && root.probeLaunchFailed ? "Couldn't run list-ports.sh from " + root.sourceDir()
+                  : root.probeState === "failed" ? "Couldn't read the socket table. Is iproute2 installed?"
                   : root.probeState === "unknown" ? "Reading listening sockets…"
                   : root.filterText ? "No ports match “" + root.filterText + "”"
                   : "Nothing is listening on localhost"
