@@ -152,7 +152,12 @@ ports_json=$(
             name="systemd" pid="${hpids[i]}"
             break
           fi
-          pp=$(awk '/^PPid:/{print $2; exit}' "/proc/${hpids[i]}/status" 2>/dev/null)
+          # A builtin read, not a forked awk: this runs once per holder, and a
+          # prefork server multiplies holders by every port it listens on.
+          pp=""
+          while read -r key val _; do
+            [[ $key == PPid: ]] && { pp=$val; break; }
+          done 2>/dev/null <"/proc/${hpids[i]}/status"
           [[ " ${hpids[*]} " == *" $pp "* ]] || { name="${hnames[i]}" pid="${hpids[i]}"; }
         done
       fi
