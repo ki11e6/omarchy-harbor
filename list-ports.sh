@@ -28,9 +28,10 @@
 # Every listener is reported whatever address it holds: something bound to
 # 192.168.1.5:3000 still blocks a 0.0.0.0:3000 bind, so hiding it would
 # manufacture a false "free". Scope classifies the bind address:
-#   any    0.0.0.0, ::, *             reachable from the network
-#   local  127.*, ::1, ::ffff:127.*   loopback only
-#   iface  anything else              one specific interface
+#   any    0.0.0.0, ::, *    reachable from the network
+#   local  127.*, ::1        loopback only
+#   iface  anything else     one specific interface
+# A v4-mapped address (::ffff:a.b.c.d) is reported as its IPv4 form first.
 #
 # Dedup collapses address families to one row per holder per port: rows
 # sharing a port and a pid merge, rows with different pids stay apart. Two
@@ -119,11 +120,14 @@ ports_json=$(
       addr="${addr%%\%*}"
       addr="${addr#\[}"
       addr="${addr%\]}"
+      # An IPv6 socket bound to a v4-mapped address (::ffff:127.0.0.1 is the
+      # JVM's usual shape for 127.0.0.1) holds exactly that IPv4 address, so it
+      # classifies, displays, and is reached as the IPv4 form — ::ffff:0.0.0.0
+      # is the v4 wildcard, not one interface.
+      [[ $addr =~ ^::ffff:([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)$ ]] && addr="${BASH_REMATCH[1]}"
       case "$addr" in
         0.0.0.0 | '::' | '*') scope="any" ;;
-        # ::ffff:127.* is an IPv6 socket bound to v4 loopback (the JVM's
-        # usual shape) — loopback-only, not one specific interface.
-        127.* | ::1 | ::ffff:127.*) scope="local" ;;
+        127.* | ::1) scope="local" ;;
         *) scope="iface" ;;
       esac
 
