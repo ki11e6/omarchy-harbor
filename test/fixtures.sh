@@ -36,8 +36,11 @@ for order in "$row_unnamed\n$row_named" "$row_named\n$row_unnamed"; do
 done
 
 row_other=$'3000\tiface\t192.168.1.5\tnode\t456\t1000\t777\tother\t/y'
+row_unnamed_any=$'3000\tany\t0.0.0.0\t?\t?\t?\t?\t\t-'
 [[ $(printf '%s\n%s\n' "$row_named" "$row_other" | bash list-ports.sh --dedup | wc -l) == 2 ]] \
   || fail "two pids on one port must stay two rows, never hide a holder"
+[[ $(printf '%s\n%s\n' "$row_unnamed" "$row_unnamed_any" | bash list-ports.sh --dedup) == "$row_unnamed_any" ]] \
+  || fail "unreadable holders on one port merge into one row, with the widest scope"
 
 [[ -z $(printf '4000\tlocal\t127.0.0.1\tnode\t123\t1000\t555\t/x\n' | bash list-ports.sh --dedup) ]] \
   || fail "arity guard must drop rows that are not nine fields"
@@ -62,7 +65,7 @@ PATH=/nonexistent /usr/bin/bash list-ports.sh \
   || fail "failure path must report ok:false, never an empty (all-free) list"
 
 # ------------------------------------------------- live probe: walk + forgery
-srv1="" srv2="" srv3="" srv4="" srv5="" srv6="" srv7="" srv8="" srv9=""
+srv1="" srv2="" srv3="" srv4="" srv5="" srv6="" srv7="" srv8="" srv9="" srv10="" srv11=""
 cleanup() {
   [[ -n $srv1 ]] && kill "$srv1" 2>/dev/null
   [[ -n $srv2 ]] && kill "$srv2" 2>/dev/null
@@ -72,7 +75,9 @@ cleanup() {
   [[ -n $srv6 ]] && kill "$srv6" 2>/dev/null
   [[ -n $srv7 ]] && kill "$srv7" 2>/dev/null
   [[ -n $srv8 ]] && kill "$srv8" 2>/dev/null
-  [[ -n $srv9 ]] && pkill -P "$srv9" 2>/dev/null && kill "$srv9" 2>/dev/null
+  [[ -n $srv9 ]] && { pkill -P "$srv9"; kill "$srv9"; } 2>/dev/null
+  [[ -n $srv10 ]] && kill "$srv10" 2>/dev/null
+  [[ -n $srv11 ]] && { pkill -P "$srv11"; kill "$srv11"; } 2>/dev/null
   rm -rf /tmp/harbor-fx
 }
 trap cleanup EXIT
@@ -80,7 +85,7 @@ trap cleanup EXIT
 # Same question the probe's occupied list asks — every state but TIME-WAIT,
 # which a previous run of this suite leaves behind on 18395 and which
 # SO_REUSEADDR binds straight over.
-for p in 18391 18392 18393 18394 18395 18396 18397 18398; do
+for p in 18391 18392 18393 18394 18395 18396 18397 18398 18399 18400; do
   [[ -z $(ss -Htan "sport = :$p" | grep -v '^TIME-WAIT') ]] \
     || fail "fixture port $p is already in use"
 done
@@ -141,6 +146,24 @@ for _ in range(2):
 time.sleep(60)
 ' >/dev/null 2>&1 &
 srv9=$!
+# 18399: an IPv6 socket bound to the v4-mapped wildcard — every v4 interface.
+python3 -c '
+import socket, time
+s = socket.socket(socket.AF_INET6); s.bind(("::ffff:0.0.0.0", 18399)); s.listen(1)
+time.sleep(60)
+' >/dev/null 2>&1 &
+srv10=$!
+# 18400: socket activation — a "systemd" holder sharing the socket with the
+# service it spawned. Renamed via comm, which is what ss reports.
+python3 -c '
+import os, socket, time
+s = socket.socket(); s.bind(("127.0.0.1", 18400)); s.listen(1)
+if os.fork() == 0:
+    open("/proc/self/comm", "w").write("systemd")
+    time.sleep(60); os._exit(0)
+time.sleep(60)
+' >/dev/null 2>&1 &
+srv11=$!
 sleep 1
 # Delete the cwd out from under srv4: the kernel marks it " (deleted)".
 rmdir /tmp/harbor-fx/del/gone
@@ -160,10 +183,16 @@ jq -e '.ports[] | select(.port=="18394") | .cwd | contains("(deleted)") | not' <
   || fail "the kernel's ' (deleted)' suffix must be stripped from cwd"
 [[ $(jq -r '.ports[] | select(.port=="18396") | .scope' <<<"$out") == "local" ]] \
   || fail "a ::ffff:127.* listener is loopback-only and must scope local, not iface"
+[[ $(jq -r '.ports[] | select(.port=="18396") | .address' <<<"$out") == "127.0.0.1" ]] \
+  || fail "a v4-mapped address holds its IPv4 form and must be reported as it"
+[[ $(jq -c '[.ports[] | select(.port=="18399") | .scope, .address]' <<<"$out") == '["any","0.0.0.0"]' ]] \
+  || fail "::ffff:0.0.0.0 is the v4 wildcard and must scope any, not iface"
 [[ $(jq -c '[.ports[] | select(.port=="18397") | .pid]' <<<"$out") == "[\"$srv7\",\"$srv8\"]" ]] \
   || fail "two processes on one port must be two rows, one per pid"
 [[ $(jq -r '.ports[] | select(.port=="18398") | .pid' <<<"$out") == "$srv9" ]] \
   || fail "a shared socket must name the root holder, not a worker its master respawns"
+[[ $(jq -r '.ports[] | select(.port=="18400") | .process' <<<"$out") == "systemd" ]] \
+  || fail "a socket systemd shares must name systemd, which the overlay refuses to signal"
 
 # ------------------------------------------------ occupancy beyond LISTEN
 [[ -z $(ss -Htln "sport = :18395") ]] \
