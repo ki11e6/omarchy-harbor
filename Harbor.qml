@@ -33,8 +33,8 @@ Item {
   // produces is not mistaken for a launch failure.
   property bool probeTimedOut: false
   // A refresh requested while a probe is in flight. Restarting a running
-  // Process delivers the killed run's partial output and exit AFTER the new
-  // run has started, where they read as this refresh's answer — so the
+  // Process delivers the killed run's partial output and exit after the
+  // restart has returned, where they read as this refresh's answer — so the
   // in-flight run is left to finish, its result discarded, and run again.
   property bool probeQueued: false
   // Below this, a port can be free and still refuse an unprivileged bind.
@@ -200,6 +200,10 @@ Item {
     root.probeTimedOut = false
     if (listProc.running) {
       root.probeQueued = true
+      // The in-flight run may be one the watchdog already gave up on and that
+      // survived its kill; without a fresh deadline this refresh would read
+      // "unknown" until that run exits, which may be never.
+      probeWatchdog.restart()
       return
     }
     listProc.running = true
