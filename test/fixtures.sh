@@ -58,13 +58,14 @@ PATH=/nonexistent /usr/bin/bash list-ports.sh \
   || fail "failure path must report ok:false, never an empty (all-free) list"
 
 # ------------------------------------------------- live probe: walk + forgery
-srv1="" srv2="" srv3="" srv4="" srv5=""
+srv1="" srv2="" srv3="" srv4="" srv5="" srv6=""
 cleanup() {
   [[ -n $srv1 ]] && kill "$srv1" 2>/dev/null
   [[ -n $srv2 ]] && kill "$srv2" 2>/dev/null
   [[ -n $srv3 ]] && kill "$srv3" 2>/dev/null
   [[ -n $srv4 ]] && kill "$srv4" 2>/dev/null
   [[ -n $srv5 ]] && kill "$srv5" 2>/dev/null
+  [[ -n $srv6 ]] && kill "$srv6" 2>/dev/null
   rm -rf /tmp/harbor-fx
 }
 trap cleanup EXIT
@@ -72,7 +73,7 @@ trap cleanup EXIT
 # Same question the probe's occupied list asks — every state but TIME-WAIT,
 # which a previous run of this suite leaves behind on 18395 and which
 # SO_REUSEADDR binds straight over.
-for p in 18391 18392 18393 18394 18395; do
+for p in 18391 18392 18393 18394 18395 18396; do
   [[ -z $(ss -Htan "sport = :$p" | grep -v '^TIME-WAIT') ]] \
     || fail "fixture port $p is already in use"
 done
@@ -103,6 +104,13 @@ conn, _ = srv.accept()
 time.sleep(60)
 ' >/dev/null 2>&1 &
 srv5=$!
+# 18396: an IPv6 socket bound to v4 loopback, as the JVM binds 127.0.0.1.
+python3 -c '
+import socket, time
+s = socket.socket(socket.AF_INET6); s.bind(("::ffff:127.0.0.1", 18396)); s.listen(1)
+time.sleep(60)
+' >/dev/null 2>&1 &
+srv6=$!
 sleep 1
 # Delete the cwd out from under srv4: the kernel marks it " (deleted)".
 rmdir /tmp/harbor-fx/del/gone
@@ -120,6 +128,8 @@ jq -e '.ports[] | select(.port=="18392") | .cwd | test("[\\t\\n]") | not' <<<"$o
   || fail "a deleted cwd must resolve project from live ancestors, not show ' (deleted)'"
 jq -e '.ports[] | select(.port=="18394") | .cwd | contains("(deleted)") | not' <<<"$out" >/dev/null \
   || fail "the kernel's ' (deleted)' suffix must be stripped from cwd"
+[[ $(jq -r '.ports[] | select(.port=="18396") | .scope' <<<"$out") == "local" ]] \
+  || fail "a ::ffff:127.* listener is loopback-only and must scope local, not iface"
 
 # ------------------------------------------------ occupancy beyond LISTEN
 [[ -z $(ss -Htln "sport = :18395") ]] \

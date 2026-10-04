@@ -28,9 +28,9 @@
 # Every listener is reported whatever address it holds: something bound to
 # 192.168.1.5:3000 still blocks a 0.0.0.0:3000 bind, so hiding it would
 # manufacture a false "free". Scope classifies the bind address:
-#   any    0.0.0.0, ::, *          reachable from the network
-#   local  127.*, ::1              loopback only
-#   iface  anything else           one specific interface
+#   any    0.0.0.0, ::, *             reachable from the network
+#   local  127.*, ::1, ::ffff:127.*   loopback only
+#   iface  anything else              one specific interface
 #
 # Dedup collapses address families to one row per port: identity fields
 # (process, pid, uid, starttime, cwd) come from the socket with a named
@@ -120,7 +120,9 @@ ports_json=$(
       addr="${addr%\]}"
       case "$addr" in
         0.0.0.0 | '::' | '*') scope="any" ;;
-        127.* | ::1) scope="local" ;;
+        # ::ffff:127.* is an IPv6 socket bound to v4 loopback (the JVM's
+        # usual shape) — loopback-only, not one specific interface.
+        127.* | ::1 | ::ffff:127.*) scope="local" ;;
         *) scope="iface" ;;
       esac
 
