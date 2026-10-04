@@ -323,9 +323,10 @@ Item {
       return
     }
     // Socket activation: systemd holds the listener and re-takes the port
-    // whatever happens to the service, so a signal frees nothing.
+    // whatever happens to the service, so a signal frees nothing. Unprivileged
+    // ss only sees the user manager (PID 1's fds are root's), hence --user.
     if (row.process === "systemd") {
-      root.refusalText = "socket-activated — systemctl stop the .socket unit"
+      root.refusalText = "socket-activated — systemctl --user stop the .socket unit"
       return
     }
     if (!/^[0-9]+$/.test(row.pid)) {
@@ -736,7 +737,7 @@ Item {
                 parts.push(rowItem.scopeLabel)
                 if (rowItem.pid !== "?") parts.push("pid " + rowItem.pid)
                 if (rowItem.process === "docker-proxy") parts.push("container — docker stop frees this")
-                if (rowItem.process === "systemd") parts.push("socket-activated — systemctl stop frees this")
+                if (rowItem.process === "systemd") parts.push("socket-activated — stopping its .socket unit frees this")
                 return parts.join(" · ")
               }
 
