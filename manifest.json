@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.ki11e6.harbor",
   "name": "Harbor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "ki11e6",
   "license": "MIT",
   "description": "Answers the EADDRINUSE moment: type a port to learn it's free (or who holds it, by project), get the next free port, and kill with verified feedback.",
