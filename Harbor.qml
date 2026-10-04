@@ -88,7 +88,7 @@ Item {
     if (root.killState === "survived")
       return { headline: root.killPort + " still listening", detail: "ctrl+k again to force", tone: "warn" }
     if (root.killState === "held")
-      return { headline: root.killPort + " still taken", detail: "pid " + root.killPid + " stopped — another process holds the port", tone: "warn" }
+      return { headline: root.killPort + " still taken", detail: "pid " + root.killPid + " let go — another process holds the port", tone: "warn" }
     if (root.probeState !== "ok" || root.queriedPort === 0) return null
     if (!Answers.portInUse(root.occupancy, root.queriedPort)) {
       return { headline: root.queriedPort + " is free",
@@ -493,20 +493,13 @@ Item {
       root.refresh()
       return
     }
-    var text = String(out || "")
-    if (text.trim() === "") {
-      root.killState = "freed"
-      root.refresh()
+    var verdict = Answers.killVerdict(out, root.killPid, root.verifyAttempt)
+    if (verdict === "retry") {
+      verifyTimer.interval = root.verifyAttempt === 1 ? 700 : 2000
+      verifyTimer.restart()
       return
     }
-    if (text.indexOf("pid=" + root.killPid + ",") === -1) {
-      root.killState = "held"
-      root.refresh()
-      return
-    }
-    if (root.verifyAttempt === 1) { verifyTimer.interval = 700; verifyTimer.restart(); return }
-    if (root.verifyAttempt === 2) { verifyTimer.interval = 2000; verifyTimer.restart(); return }
-    root.killState = "survived"
+    root.killState = verdict
     root.refresh()
   }
 

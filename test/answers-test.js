@@ -86,4 +86,23 @@ assert.strictEqual(A.hostFor({ scope: "iface", address: "fe80::1" }), "[fe80::1]
 assert.strictEqual(A.hostFor({ scope: "local", address: "" }), "localhost", "missing address")
 assert.strictEqual(A.hostFor({}), "localhost", "absent address field")
 
+// killVerdict: one port-scoped `ss -Htlnp` check after a kill, attempt 1..3
+const held = (pid, fd) => `LISTEN 0 1 127.0.0.1:3000 0.0.0.0:* users:(("python3",pid=${pid},fd=${fd}))\n`
+assert.strictEqual(A.killVerdict("", "123", 1), "freed", "an empty table is freed")
+assert.strictEqual(A.killVerdict("  \n", "123", 1), "freed", "whitespace is an empty table")
+assert.strictEqual(A.killVerdict(held(123, 3), "123", 1), "retry", "target listed early: wait")
+assert.strictEqual(A.killVerdict(held(123, 3), "123", 2), "retry", "target listed: wait again")
+assert.strictEqual(A.killVerdict(held(123, 3), "123", 3), "survived", "target listed last: survived")
+// gunicorn's shutdown order: the master closes its copy first, then waits on
+// workers that still hold theirs. That is a shutdown in progress, not a port
+// held by someone else — it must not be the final answer on the first look.
+assert.strictEqual(A.killVerdict(held(124, 3), "123", 1), "retry",
+  "target gone but others listed early: wait, never conclude held")
+assert.strictEqual(A.killVerdict(held(124, 3), "123", 2), "retry",
+  "target gone but others listed: wait again")
+assert.strictEqual(A.killVerdict(held(124, 3), "123", 3), "held",
+  "target gone and others still listed last: held")
+assert.strictEqual(A.killVerdict(held(11234, 3), "1234", 3), "held",
+  "pid matching is exact, never a digit-suffix hit")
+
 console.log("ANSWERS_TESTS_PASS")

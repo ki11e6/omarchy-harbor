@@ -79,6 +79,20 @@ function hostFor(row) {
   return addr.indexOf(":") >= 0 ? "[" + addr + "]" : addr
 }
 
+// The outcome of one port-scoped `ss -Htlnp` check on attempt 1..3 after a
+// kill: "freed" | "retry" | "survived" | "held". Only an empty table is
+// "freed" at once. A table that no longer names the target is not yet an
+// answer: a prefork master can close its copy and stay alive waiting on
+// workers that close theirs a moment later (gunicorn's shutdown order), so it
+// waits out the same schedule as a surviving target. After the last attempt,
+// the target still listed is "survived"; only others listed is "held".
+function killVerdict(out, pid, attempt) {
+  var text = String(out || "")
+  if (text.trim() === "") return "freed"
+  if (attempt < 3) return "retry"
+  return text.indexOf("pid=" + pid + ",") === -1 ? "held" : "survived"
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     queriedPortOf: queriedPortOf,
@@ -86,6 +100,7 @@ if (typeof module !== "undefined") {
     portInUse: portInUse,
     inEphemeralRange: inEphemeralRange,
     nextFreePort: nextFreePort,
-    hostFor: hostFor
+    hostFor: hostFor,
+    killVerdict: killVerdict
   }
 }
