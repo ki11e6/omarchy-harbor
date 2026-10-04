@@ -32,6 +32,11 @@ Item {
   // Set by the watchdog before it kills a hung probe, so the exit that kill
   // produces is not mistaken for a launch failure.
   property bool probeTimedOut: false
+  // A refresh requested while a probe is in flight. Restarting a running
+  // Process delivers the killed run's partial output and exit AFTER the new
+  // run has started, where they read as this refresh's answer — so the
+  // in-flight run is left to finish, its result discarded, and run again.
+  property bool probeQueued: false
   // Below this, a port can be free and still refuse an unprivileged bind.
   // Supplied by the probe (it reads the sysctl); 1024 is the fallback.
   property int unprivilegedPortStart: 1024
@@ -188,7 +193,10 @@ Item {
     root.probeState = "unknown"
     root.probeLaunchFailed = false
     root.probeTimedOut = false
-    listProc.running = false
+    if (listProc.running) {
+      root.probeQueued = true
+      return
+    }
     listProc.running = true
     probeWatchdog.restart()
   }
@@ -382,11 +390,16 @@ Item {
     command: ["bash", root.sourceDir() + "/list-ports.sh"]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.loadPorts(text)
+      onStreamFinished: if (!root.probeQueued) root.loadPorts(text)
     }
     // The script itself always exits 0; a non-zero code means bash never ran
     // it, so no trustworthy payload exists.
     onExited: function(exitCode) {
+      if (root.probeQueued) {
+        root.probeQueued = false
+        root.refresh()
+        return
+      }
       if (exitCode !== 0) {
         if (!root.probeTimedOut) root.probeLaunchFailed = true
         root.probeState = "failed"
@@ -454,9 +467,11 @@ Item {
 
   function applyVerify(exitCode, exitStatus, out) {
     if (root.killState !== "terminating") return
-    // A crashed ss is evidence for neither outcome — including the one
-    // killSelected cancels when a second ctrl+k lands mid-verify, which exits
-    // by signal and so carries a normal-looking code on some builds.
+    // No check has been launched for this kill yet, so this exit belongs to
+    // the one killSelected cancelled — Quickshell delivers it after the new
+    // kill has already set "terminating", and it would mark that kill
+    // survived before it was ever verified.
+    if (root.verifyAttempt === 0) return
     if (exitCode !== 0 || exitStatus !== 0) {
       // ss itself failed — evidence for neither outcome. "survived" is the
       // safe claim: it never asserts a port is free without proof.
