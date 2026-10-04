@@ -4,7 +4,7 @@
 # "ephemeralStart": n, "ephemeralEnd": n, "ports": [...], "occupied": [...]},
 # where ports holds {port, scope, address, process, pid, uid, starttime,
 # project, cwd} objects (nine fields — the arity guard and the jq assembly
-# both depend on that count), sorted by port, one entry per port.
+# both depend on that count), sorted by port, one entry per holder per port.
 #
 # ports answers "who holds this?"; occupied answers "can I bind this?". They
 # are not the same set. `ss -l` shows only LISTEN, but a socket in any other
@@ -32,10 +32,14 @@
 #   local  127.*, ::1, ::ffff:127.*   loopback only
 #   iface  anything else              one specific interface
 #
-# Dedup collapses address families to one row per port: identity fields
-# (process, pid, uid, starttime, cwd) come from the socket with a named
-# owner; scope comes from the widest bind, and address from the socket that
-# won the scope union, so scope and address always agree.
+# Dedup collapses address families to one row per holder per port: rows
+# sharing a port and a pid merge, rows with different pids stay apart. Two
+# processes on 127.0.0.1:3000 and 192.168.1.5:3000 are two answers to "who
+# holds this?" — merging them hid one holder, and a kill aimed at the shown
+# one left the port taken by the hidden one. Unreadable owners ("?") group
+# together, since nothing tells them apart. Within a row, scope comes from
+# the widest bind and address from the socket that won the scope union, so
+# scope and address always agree.
 #
 # "ok" is false when the socket table could not be read (ss missing or
 # failing) or the JSON assembly failed. An empty machine and a failed probe
@@ -55,14 +59,11 @@ dedup() {
   awk -F'\t' '
     function rank(s) { return s == "any" ? 3 : s == "iface" ? 2 : 1 }
     NF == 9 {
-      p = $1
-      if (!(p in seen)) { seen[p] = 1 }
-      if (!(p in srank) || rank($2) > srank[p]) { srank[p] = rank($2); scope[p] = $2; adr[p] = $3 }
-      named = ($5 != "?")
-      id = $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 "\t" $9
-      if (!(p in ident) || (named && !identNamed[p])) { ident[p] = id; identNamed[p] = named }
+      k = $1 "\t" $5
+      if (!(k in srank) || rank($2) > srank[k]) { srank[k] = rank($2); scope[k] = $2; adr[k] = $3 }
+      if (!(k in ident)) ident[k] = $4 "\t" $5 "\t" $6 "\t" $7 "\t" $8 "\t" $9
     }
-    END { for (p in seen) print p "\t" scope[p] "\t" adr[p] "\t" ident[p] }
+    END { for (k in ident) { split(k, kp, "\t"); print kp[1] "\t" scope[k] "\t" adr[k] "\t" ident[k] } }
   '
 }
 
@@ -126,10 +127,30 @@ ports_json=$(
         *) scope="iface" ;;
       esac
 
+      # A socket shared by several processes (a prefork master and its
+      # workers) lists every holder, newest first. The row names the root of
+      # that tree — the holder whose parent holds no copy — because a kill
+      # aimed at a worker is undone by its master respawning it. systemd
+      # (socket activation) wins outright: it keeps the port whatever the
+      # service does, and the overlay refuses to signal it.
       pid="" name=""
-      if [[ $users =~ \(\"([^\"]+)\",pid=([0-9]+) ]]; then
-        name="${BASH_REMATCH[1]}"
-        pid="${BASH_REMATCH[2]}"
+      hnames=() hpids=()
+      rest="$users"
+      while [[ $rest =~ \(\"([^\"]+)\",pid=([0-9]+) ]]; do
+        hnames+=("${BASH_REMATCH[1]}")
+        hpids+=("${BASH_REMATCH[2]}")
+        rest="${rest#*"${BASH_REMATCH[0]}"}"
+      done
+      if (( ${#hpids[@]} > 0 )); then
+        name="${hnames[0]}" pid="${hpids[0]}"
+        for i in "${!hpids[@]}"; do
+          if [[ ${hnames[i]} == "systemd" ]]; then
+            name="systemd" pid="${hpids[i]}"
+            break
+          fi
+          pp=$(awk '/^PPid:/{print $2; exit}' "/proc/${hpids[i]}/status" 2>/dev/null)
+          [[ " ${hpids[*]} " == *" $pp "* ]] || { name="${hnames[i]}" pid="${hpids[i]}"; }
+        done
       fi
 
       cwd="-" uid="?" start="?"
@@ -186,7 +207,7 @@ ports_json=$(
 
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$port" "$scope" "$addr" "$name" "$pid" "$uid" "$start" "$project" "$cwd"
-    done <<<"$sockets" | dedup | sort -n -t$'\t' -k1,1
+    done <<<"$sockets" | dedup | sort -t$'\t' -k1,1n -k5,5n
   } | jq -R -s '[split("\n")[] | select(length > 0) | split("\t") |
     {port: .[0], scope: .[1], address: .[2], process: .[3],
      pid: .[4], uid: .[5], starttime: .[6], project: .[7], cwd: .[8]}]'

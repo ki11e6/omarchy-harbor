@@ -50,8 +50,9 @@ another one**. Harbor makes both a single keystroke.
   `/proc` immediately before it goes out, narrowing to microseconds the window
   in which a recycled PID could catch a kill meant for its predecessor.
 - **Refusals explained** — a port held by another user's process says *needs
-  sudo*; a `docker-proxy` port says *docker stop frees this* instead of
-  offering a kill dockerd would undo. No silent no-ops.
+  sudo*; a `docker-proxy` port says *docker stop frees this* and a
+  socket-activated one says *systemctl stop the .socket unit*, instead of
+  offering a kill that would be undone. No silent no-ops.
 - **Exposure at a glance** — an urgent dot marks listeners reachable beyond
   localhost; something bound to `192.168.1.5:3000` still blocks your bind, so
   Harbor shows it.
@@ -121,7 +122,7 @@ hl.layer_rule({ match = { namespace = "harbor" }, no_anim = true, animation = "n
 ## How it works
 
 The overlay runs `list-ports.sh` (a small `ss -tanp` wrapper) each time it opens or refreshes, and renders the result with the active Omarchy theme. One dump answers two different questions: the rows show listeners, because only a listener has a holder worth naming, while the free/taken answer counts every port the machine holds in a bind-refusing state — a socket pinned to a port by an outbound connection refuses your bind just as firmly and appears in no listener table. Only listeners pay for the per-row `/proc` walk.
-Every listener is shown whatever address it holds — something on `192.168.1.5:3000` still blocks a `0.0.0.0:3000` bind — with its bind scope (`localhost`, `all interfaces`, or the literal address). Duplicates across address families collapse to one row per port, preferring the row whose owner is known and the widest bind scope. `enter` and `ctrl+y` target the address the listener actually holds; only a wildcard bind (or `127.0.0.1` itself) is reachable as `localhost`, so a server on `127.0.0.53` or `192.168.1.5` gets its literal address.
+Every listener is shown whatever address it holds — something on `192.168.1.5:3000` still blocks a `0.0.0.0:3000` bind — with its bind scope (`localhost`, `all interfaces`, or the literal address). Duplicates across address families collapse to one row per process per port, with the widest bind scope; two processes sharing a port on different addresses stay two rows, and a kill that stops one while the other still holds the port says so (`3000 still taken`) rather than claiming it free. A socket shared by a prefork master and its workers is attributed to the master, so `ctrl+k` stops the tree instead of a worker the master would respawn. `enter` and `ctrl+y` target the address the listener actually holds; only a wildcard bind (or `127.0.0.1` itself) is reachable as `localhost`, so a server on `127.0.0.53` or `192.168.1.5` gets its literal address.
 
 Rows are named by the project checkout the server was started from (the nearest ancestor of its working directory carrying `.git`, `package.json`, and similar markers), so four `node` processes read as four project names. No framework guessing: an honest `node` beats a wrong `Next.js`.
 
@@ -130,7 +131,7 @@ A probe that fails or times out says so — Harbor never renders a failed probe 
 Free claims carry a caveat where "free" is not a promise: below the kernel's unprivileged-port floor ("needs root"), and inside `net.ipv4.ip_local_port_range`, where the kernel draws outbound source ports and a free port can be claimed a moment later. Both ranges are read from the kernel, not hardcoded. Suggestions are held to a stricter bar than reports and never land in either — a recommendation that needs a caveat is not a recommendation.
 
 Ports owned by other users (for example root services like CUPS) show `?` for the process and omit the PID from the context line, since `ss` can't read their process info without root.
-`ctrl+k` on those says `owned by another user — needs sudo`; on a `docker-proxy` row it says `container port — docker stop frees this` instead of sending a kill dockerd would undo.
+`ctrl+k` on those says `owned by another user — needs sudo`; on a `docker-proxy` row it says `container port — docker stop frees this` instead of sending a kill dockerd would undo, and on a `systemd` (socket-activated) row it says `socket-activated — systemctl stop the .socket unit`.
 
 Everything runs unprivileged as your user. `ctrl+k` re-checks the target's identity (pid, uid, start time) against live `/proc` before signaling, narrowing to microseconds the window in which a recycled PID could catch a signal meant for its predecessor — closing it entirely would need `pidfd_send_signal`, which is unreachable from shell. There is no confirmation step — the first press sends SIGTERM (polite), and only a deliberate second press on a survivor sends SIGKILL.
 

@@ -48,9 +48,11 @@ Item {
   // to SIGKILL. Keyed on pid AND starttime so a recycled PID cannot inherit
   // the armed escalation.
   property string lastKilledKey: ""
-  // Kill outcome: "" | "terminating" | "freed" | "survived".
+  // Kill outcome: "" | "terminating" | "freed" | "survived" | "held".
+  // "held": the target let go, but another process still holds the port.
   property string killState: ""
   property string killPort: ""
+  property string killPid: ""
   property int verifyAttempt: 0
   // Why the last ctrl+k did nothing. A silent no-op is the worst outcome in
   // a tool used under time pressure.
@@ -85,6 +87,8 @@ Item {
       return { headline: root.killPort + " is now free", detail: "", tone: "good" }
     if (root.killState === "survived")
       return { headline: root.killPort + " still listening", detail: "ctrl+k again to force", tone: "warn" }
+    if (root.killState === "held")
+      return { headline: root.killPort + " still taken", detail: "pid " + root.killPid + " stopped — another process holds the port", tone: "warn" }
     if (root.probeState !== "ok" || root.queriedPort === 0) return null
     if (!Answers.portInUse(root.occupancy, root.queriedPort)) {
       return { headline: root.queriedPort + " is free",
@@ -179,6 +183,7 @@ Item {
   function clearKillFeedback() {
     root.killState = ""
     root.killPort = ""
+    root.killPid = ""
     root.refusalText = ""
     root.verifyAttempt = 0
     verifyTimer.stop()
@@ -313,6 +318,12 @@ Item {
       root.refusalText = "container port — docker stop frees this"
       return
     }
+    // Socket activation: systemd holds the listener and re-takes the port
+    // whatever happens to the service, so a signal frees nothing.
+    if (row.process === "systemd") {
+      root.refusalText = "socket-activated — systemctl stop the .socket unit"
+      return
+    }
     if (!/^[0-9]+$/.test(row.pid)) {
       root.refusalText = "owned by another user — needs sudo"
       return
@@ -326,6 +337,7 @@ Item {
     var signal = (key === root.lastKilledKey) ? "KILL" : "TERM"
     root.lastKilledKey = key
     root.killPort = row.port
+    root.killPid = row.pid
     root.killState = "terminating"
     root.verifyAttempt = 0
     // A verification already in flight belongs to a previous row; its result
@@ -454,8 +466,10 @@ Item {
     // Deliberately -l, unlike the occupancy probe's -a: killing a listener
     // leaves its accepted connections in TIME-WAIT on the same port, and -a
     // would read those as "still listening" and report a successful kill as a
-    // survivor. The question here is whether the listener let go.
-    command: ["sh", "-c", "ss -Htln \"sport = :$1\"", "harbor-verify", root.killPort]
+    // survivor. The question here is whether the listener let go. -p names
+    // the holders: another process can share the port on another address,
+    // and its listener is not the target surviving.
+    command: ["sh", "-c", "ss -Htlnp \"sport = :$1\"", "harbor-verify", root.killPort]
     stdout: StdioCollector { id: checkOut; waitForEnd: true }
     // Exit code, exit status and stdout together: a failed ss and a free port
     // both print nothing, and "freed" is a free-claim — it needs evidence, not
@@ -479,8 +493,14 @@ Item {
       root.refresh()
       return
     }
-    if (String(out || "").trim() === "") {
+    var text = String(out || "")
+    if (text.trim() === "") {
       root.killState = "freed"
+      root.refresh()
+      return
+    }
+    if (text.indexOf("pid=" + root.killPid + ",") === -1) {
+      root.killState = "held"
       root.refresh()
       return
     }
@@ -719,6 +739,7 @@ Item {
                 parts.push(rowItem.scopeLabel)
                 if (rowItem.pid !== "?") parts.push("pid " + rowItem.pid)
                 if (rowItem.process === "docker-proxy") parts.push("container — docker stop frees this")
+                if (rowItem.process === "systemd") parts.push("socket-activated — systemctl stop frees this")
                 return parts.join(" · ")
               }
 
